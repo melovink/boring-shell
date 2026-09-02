@@ -34,7 +34,7 @@ Item {
     Process {
         id: launcherProc
         property string cmd: ""
-        command: ["/bin/sh", "-c", cmd + " & disown"]
+        command: ["systemd-run", "--user", "--", "/bin/sh", "-c", cmd]
     }
 
     TextInput {

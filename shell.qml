@@ -116,7 +116,7 @@ ShellRoot {
 
     Process {
         id: mpdProcess
-        command: ["sh", "-c", "kitty -e rmpc &"]
+        command: ["systemd-run", "--user", "--", "kitty", "-e", "rmpc"]
     }
 
     property bool isFullscreen: false
