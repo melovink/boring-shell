@@ -35,6 +35,9 @@ ShellRoot {
             root.bottomBarMode = root.bottomBarMode === "wallpaper" ? "cava" : "wallpaper";
             cavaBar.WlrLayershell.keyboardFocus = root.bottomBarMode !== "cava" ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None;
         }
+        function toggleGif(): void {
+            gifModule.isActive = !gifModule.isActive;
+        }
     }
 
     // Data Properties
@@ -180,7 +183,7 @@ ShellRoot {
         }
         
         property bool isExpanded: hoverHandler.hovered || calPopup.visible || volPopup.visible || netPopup.visible || pwrPopup.visible || trayModule.isTrayMenuOpen
-        property real targetWidth: isExpanded ? 720 : 120
+        property real targetWidth: isExpanded ? 780 : 120
 
         Rectangle {
             id: background
@@ -290,6 +293,16 @@ ShellRoot {
                     id: trayModule
                     panelWindow: dynamicIsland
                     otherPopups: [calPopup, volPopup, netPopup, pwrPopup]
+                }
+
+                // GIF Toggle
+                GifModule {
+                    id: gifModule
+                    nord1: root.nord1
+                    nord4: root.nord4
+                    nord6: root.nord6
+                    nord8: root.nord8
+                    fontPrimary: root.fontPrimary
                 }
             }
 

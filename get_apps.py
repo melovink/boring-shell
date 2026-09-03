@@ -13,9 +13,10 @@ for p in paths:
                 name = e.get('Name', '')
                 icon = e.get('Icon', '')
                 exec_cmd = e.get('Exec', '')
+                id = os.path.basename(f)
                 if name and exec_cmd and name not in seen:
                     exec_cmd = ' '.join(part for part in exec_cmd.split() if not part.startswith('%'))
-                    apps.append({"name": name, "icon": icon, "exec": exec_cmd})
+                    apps.append({"name": name, "icon": icon, "exec": exec_cmd, "id": id})
                     seen.add(name)
         except Exception:
             pass

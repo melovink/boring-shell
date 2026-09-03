@@ -33,8 +33,8 @@ Item {
 
     Process {
         id: launcherProc
-        property string cmd: ""
-        command: ["systemd-run", "--user", "--", "/bin/sh", "-c", cmd]
+        property string appId: ""
+        command: ["sh", "-c", "gtk-launch \"$1\" >/dev/null 2>&1 &", "sh", appId]
     }
 
     TextInput {
@@ -67,7 +67,7 @@ Item {
         
         onAccepted: {
             if (appsModel.count > 0) {
-                launcherProc.cmd = appsModel.get(0).exec;
+                launcherProc.appId = appsModel.get(0).id;
                 launcherProc.running = true;
             }
             // Quit the launcher immediately
@@ -131,7 +131,7 @@ Item {
             }
             
             onClicked: {
-                launcherProc.cmd = model.exec;
+                launcherProc.appId = model.id;
                 launcherProc.running = true;
                 // Quit the launcher immediately
                 launcherInput.text = "";
