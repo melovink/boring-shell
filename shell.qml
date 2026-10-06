@@ -7,6 +7,7 @@ import Quickshell
 import Quickshell.Wayland
 import Quickshell.Hyprland
 import Quickshell.Services.SystemTray
+import Quickshell.Services.Notifications
 import Quickshell.Io
 
 ShellRoot {
@@ -25,6 +26,95 @@ ShellRoot {
 
     property string bottomBarMode: "cava"
 
+    // ---- Notifications ----
+    // boring owns the org.freedesktop.Notifications name, so this process is the
+    // desktop's notification daemon. Nothing else claimed that name: dunst's
+    // D-Bus service file is discarded in favour of a plasma_waitforname stub that
+    // never takes the name and dies after a minute, which is why notify-send used
+    // to hang. Registering here fixes that at the source instead of shadowing the
+    // broken system service file.
+    property var activeNotification: null
+    property string notifTimestamp: ""
+    property double notifDeadline: 0
+    property bool notifHovered: false
+    property int notifRevision: 0
+    // Transient expanded state driven by holding the peek key. Kept separate from
+    // the hover-driven expansion so the bind does not have to steal the pointer.
+    property bool barHeld: false
+
+    NotificationServer {
+        onNotification: n => root.showNotification(n)
+    }
+
+    // Urgency maps to lifetime so the bar is not monopolised by low-value noise
+    // (no filtering was requested, so things like the touchpad toggle do arrive).
+    function notificationDuration(n): number {
+        if (n.urgency === NotificationUrgency.Critical) return 15000;
+        if (n.urgency === NotificationUrgency.Low) return 2000;
+        var t = n.expireTimeout;
+        if (typeof t !== "number" || t <= 0) return 5000;
+        return Math.max(2000, Math.min(15000, t));
+    }
+
+    function showNotification(n): void {
+        // The card replaces the modules the popups are anchored to, so leaving them
+        // open would strand a floating menu against a hidden anchor.
+        calPopup.visible = false;
+        volPopup.visible = false;
+        netPopup.visible = false;
+        pwrPopup.visible = false;
+        if (trayModule && trayModule.popup) trayModule.popup.visible = false;
+
+        root.releaseNotification();
+
+        root.notifTimestamp = Qt.formatDateTime(new Date(), "hh:mm");
+        root.notifDeadline = Date.now() + root.notificationDuration(n);
+        root.notifRevision++;
+
+        // Quickshell frees a Notification as soon as onNotification returns unless
+        // it is tracked, which nulled the card a frame after it arrived. Claiming
+        // the one notification being displayed is what keeps its payload alive.
+        n.tracked = true;
+        root.activeNotification = n;
+    }
+
+    function dismissNotification(): void {
+        if (root.activeNotification) root.activeNotification.dismiss();
+        root.releaseNotification();
+    }
+
+    // Releases the payload without reporting a dismissal, so a notification that
+    // was merely replaced does not tell its sender the user swiped it away.
+    function releaseNotification(): void {
+        var n = root.activeNotification;
+        root.activeNotification = null;
+        if (n) n.tracked = false;
+    }
+
+    // The sender retracted it, or the server expired it: drop the card.
+    Connections {
+        target: root.activeNotification
+        function onClosed(): void { root.activeNotification = null; }
+    }
+
+    // A coarse tick rather than a single shot: hovering has to pause the deadline
+    // and resuming should not restart the full duration, so the remaining time is
+    // derived from an absolute deadline rather than from the timer itself.
+    Timer {
+        id: notifTimer
+        interval: 150
+        repeat: true
+        running: root.activeNotification !== null
+        onTriggered: {
+            if (root.notifHovered) {
+                root.notifDeadline = Date.now() + 150;
+                return;
+            }
+            if (Date.now() >= root.notifDeadline) root.dismissNotification();
+        }
+    }
+
+
     IpcHandler {
         target: "bottomBar"
         function showLauncher(): void {
@@ -37,6 +127,12 @@ ShellRoot {
         }
         function toggleGif(): void {
             gifModule.isActive = !gifModule.isActive;
+        }
+        function holdBar(): void {
+            root.barHeld = true;
+        }
+        function unholdBar(): void {
+            root.barHeld = false;
         }
     }
 
@@ -122,15 +218,7 @@ ShellRoot {
         command: ["systemd-run", "--user", "--", "kitty", "-e", "rmpc"]
     }
 
-    property bool isFullscreen: false
 
-    Process {
-        id: syncFullscreenProc
-        command: ["sh", "-c", "hyprctl activewindow -j | grep -q '\"fullscreen\": [12]'"]
-        onRunningChanged: {
-            if (!running && this.exitCode !== undefined) root.isFullscreen = (this.exitCode === 0);
-        }
-    }
 
     Process {
         id: hyprlandEventProc
@@ -140,10 +228,7 @@ ShellRoot {
             splitMarker: "\n"
             onRead: line => {
                 var l = line.trim();
-                if (l.startsWith("fullscreen>>")) {
-                    root.isFullscreen = l.substring(12) === "1";
-                } else if (l.startsWith("activewindow>>")) {
-                    syncFullscreenProc.running = true;
+                if (l.startsWith("activewindow>>")) {
                     calPopup.visible = false;
                     volPopup.visible = false;
                     netPopup.visible = false;
@@ -163,50 +248,89 @@ ShellRoot {
             wifiProc.running = true;
             batProc.running = true;
             mpcProc.running = true;
-            syncFullscreenProc.running = true;
         }
     }
 
+    // Floating centered clock (stays behind all windows)
+    FloatingClock {}
+
     PanelWindow {
         id: dynamicIsland
-        anchors { top: true; left: true; right: true }
-        height: 60
-        exclusiveZone: 40
+        anchors { top: true; left: true; right: true; }
+        // Fixed at the tallest state rather than animated. Resizing a layer-shell
+        // window reallocates the surface and input region every frame, which
+        // stuttered badly; the Region mask already trims input to the bar itself,
+        // so the extra room is never hit.
+        height: 100
+        exclusiveZone: 0
         color: "transparent"
         WlrLayershell.layer: WlrLayer.Overlay
-        
+
         mask: Region {
             x: background.x
             y: background.y
             width: background.width
             height: background.height
         }
-        
-        property bool isExpanded: hoverHandler.hovered || calPopup.visible || volPopup.visible || netPopup.visible || pwrPopup.visible || trayModule.isTrayMenuOpen
-        property real targetWidth: isExpanded ? 780 : 120
+
+        // A notification outranks hover: the card is only legible at full width, so
+        // it never appears in the 120px collapsed sliver. Two thirds of the
+        // expanded bar, so the bar grows into the card rather than jumping.
+        readonly property bool notifActive: root.activeNotification !== null
+        property bool isExpanded: root.barHeld || hoverHandler.hovered || calPopup.visible || volPopup.visible || netPopup.visible || pwrPopup.visible || trayModule.isTrayMenuOpen
+        property real targetWidth: notifActive ? 520 : (isExpanded ? 780 : 120)
 
         Rectangle {
             id: background
             anchors.top: parent.top
-            anchors.topMargin: root.isFullscreen && !dynamicIsland.isExpanded ? -54 : -16
-            
+            anchors.topMargin: dynamicIsland.notifActive ? -16 : (dynamicIsland.isExpanded ? -16 : -55)
+
             Behavior on anchors.topMargin {
-                NumberAnimation { duration: 300; easing.type: Easing.OutCubic }
+                NumberAnimation { duration: 260; easing.type: Easing.OutQuint }
             }
             anchors.horizontalCenter: parent.horizontalCenter
             width: dynamicIsland.targetWidth
-            height: 56
+            height: dynamicIsland.notifActive ? 96 : 56
             color: root.nord0
             radius: 16
             border.color: root.nord1
             border.width: 1
 
             Behavior on width {
-                NumberAnimation { duration: 400; easing.type: Easing.OutCubic }
+                NumberAnimation { duration: 320; easing.type: Easing.OutQuint }
+            }
+
+            Behavior on height {
+                NumberAnimation { duration: 260; easing.type: Easing.OutQuint }
             }
 
             HoverHandler {
                 id: hoverHandler
+                onHoveredChanged: root.notifHovered = hovered
+            }
+
+            NotificationCard {
+                anchors.fill: parent
+                notification: root.activeNotification
+                timestamp: root.notifTimestamp
+                revision: root.notifRevision
+                opacity: dynamicIsland.notifActive ? 1.0 : 0.0
+                visible: opacity > 0
+
+                onDismissRequested: root.dismissNotification()
+
+                Behavior on opacity {
+                    NumberAnimation { duration: 190; easing.type: Easing.OutQuint }
+                }
+
+                nord1: root.nord1
+                nord4: root.nord4
+                nord6: root.nord6
+                nord8: root.nord8
+                nord9: root.nord9
+                nord11: root.nord11
+                fontPrimary: root.fontPrimary
+                fontMono: root.fontMono
             }
 
             Row {
@@ -214,11 +338,11 @@ ShellRoot {
                 anchors.centerIn: parent
                 anchors.verticalCenterOffset: 8
                 spacing: 16
-                opacity: dynamicIsland.isExpanded ? 1.0 : 0.0
+                opacity: dynamicIsland.notifActive ? 0.0 : (dynamicIsland.isExpanded ? 1.0 : 0.0)
                 visible: opacity > 0
 
                 Behavior on opacity {
-                    NumberAnimation { duration: 300; easing.type: Easing.OutCubic }
+                    NumberAnimation { duration: 220; easing.type: Easing.OutQuint }
                 }
 
                 // Workspaces
@@ -315,10 +439,10 @@ ShellRoot {
                 color: root.nord6
                 font.family: root.fontMono
                 font.pixelSize: 14
-                opacity: dynamicIsland.isExpanded ? 0.0 : 1.0
+                opacity: dynamicIsland.notifActive ? 0.0 : (dynamicIsland.isExpanded ? 0.0 : 1.0)
                 visible: opacity > 0
 
-                Behavior on opacity { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                Behavior on opacity { NumberAnimation { duration: 190; easing.type: Easing.OutQuint } }
             }
         }
         
@@ -565,7 +689,7 @@ ShellRoot {
             id: cavaBackground
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
-            anchors.bottomMargin: (root.bottomBarMode === "cava" && !cavaBar.isHovered) ? -66 : -16
+            anchors.bottomMargin: (root.bottomBarMode === "cava" && !cavaBar.isHovered) ? -75 : -16
             
             width: root.bottomBarMode === "wallpaper" ? 800 : (root.bottomBarMode === "launcher" ? 540 : 300)
             height: root.bottomBarMode === "wallpaper" ? 340 : (root.bottomBarMode === "launcher" ? 500 : 76)

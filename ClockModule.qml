@@ -20,7 +20,7 @@ Rectangle {
         anchors.centerIn: parent
         text: Qt.formatDateTime(new Date(), "hh:mm")
         color: nord6
-        font.family: fontMono
+        font.family: "Outfit"
         font.pixelSize: 14
     }
     MouseArea {
