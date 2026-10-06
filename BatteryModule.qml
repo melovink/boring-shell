@@ -10,6 +10,7 @@ Rectangle {
     property string batteryStatus
     property PopupWindow pwrPopup
     property var otherPopups: []
+    readonly property bool hovered: batMouse.containsMouse
 
     width: batMouse.containsMouse ? 140 : 40; height: 28; color: nord1; radius: 12; anchors.verticalCenter: parent.verticalCenter
     Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }

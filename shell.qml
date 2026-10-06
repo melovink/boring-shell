@@ -41,6 +41,8 @@ ShellRoot {
     // Transient expanded state driven by holding the peek key. Kept separate from
     // the hover-driven expansion so the bind does not have to steal the pointer.
     property bool barHeld: false
+    // Do-not-disturb, toggled from the bell button at the right end of the bar.
+    property bool notifMuted: false
 
     NotificationServer {
         onNotification: n => root.showNotification(n)
@@ -57,6 +59,9 @@ ShellRoot {
     }
 
     function showNotification(n): void {
+        // Muted: leave it untracked so Quickshell drops it right away.
+        if (root.notifMuted) return;
+
         // The card replaces the modules the popups are anchored to, so leaving them
         // open would strand a floating menu against a hidden anchor.
         calPopup.visible = false;
@@ -134,28 +139,51 @@ ShellRoot {
         function unholdBar(): void {
             root.barHeld = false;
         }
+        function toggleBar(): void {
+            root.barHeld = !root.barHeld;
+        }
     }
 
     // Data Properties
     property string volumeText: "..."
+    // Raw sink level (0..1), kept separately from volumeText so the slider still
+    // knows the level while muted.
+    property real volumeLevel: 0
     property string wifiText: "..."
     property string networkType: "none"
     property string batteryText: "..."
     property string batteryStatus: "Unknown"
+    // TLP power profile from /run/tlp/last_pwr: performance, balanced or power-saver.
+    property string tlpProfile: ""
     property string mpdRawText: "Stopped"
+    property bool mpdPlaying: false
     property string mpdText: {
         if (mpdRawText.length <= 30) return mpdRawText;
         return mpdRawText.substring(0, 30) + "...";
     }
     
     // Processes for Polling Data
+    // `mpc status` prints "<song>\n[playing|paused] ...\nvolume: ..." while a
+    // song is loaded and only the "volume:" line when stopped. Untagged files
+    // (e.g. plain .wav) have no artist/title, so the format falls back to the
+    // file path, marked with "file:" so it can be trimmed to a bare name.
     Process {
         id: mpcProc
-        command: ["mpc", "current", "-f", "%artist% - %title%"]
+        command: ["mpc", "status", "-f", "[[%artist% - ]%title%]|file:%file%"]
         stdout: StdioCollector {
             onStreamFinished: {
-                var out = this.text.trim();
-                root.mpdRawText = out !== "" ? out : "Stopped";
+                var lines = this.text.trim().split("\n");
+                var state = lines.length >= 2 ? lines[1].match(/^\[(\w+)\]/) : null;
+                if (state) {
+                    var song = lines[0].trim();
+                    if (song.startsWith("file:"))
+                        song = song.substring(5).split("/").pop().replace(/\.[^.]+$/, "");
+                    root.mpdRawText = song !== "" ? song : "Unknown";
+                    root.mpdPlaying = state[1] === "playing";
+                } else {
+                    root.mpdRawText = "Stopped";
+                    root.mpdPlaying = false;
+                }
             }
         }
     }
@@ -165,17 +193,48 @@ ShellRoot {
         command: ["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"]
         stdout: StdioCollector {
             onStreamFinished: {
+                // A poll that started before the latest slider write would report
+                // the old level and yank the slider back, so drop it.
+                if (setVolProc.running || setVolProc.pendingVol >= 0) return;
                 var out = this.text.trim();
+                var match = out.match(/Volume: ([\d\.]+)/);
+                if (match && match[1]) root.volumeLevel = parseFloat(match[1]);
                 if (out.includes("[MUTED]")) {
                     root.volumeText = "Muted";
-                } else {
-                    var match = out.match(/Volume: ([\d\.]+)/);
-                    if (match && match[1]) {
-                        root.volumeText = Math.round(parseFloat(match[1]) * 100) + "%";
-                    }
+                } else if (match && match[1]) {
+                    root.volumeText = Math.round(root.volumeLevel * 100) + "%";
                 }
             }
         }
+    }
+
+    // Slider writes are serialised through one wpctl process. While it runs, only
+    // the newest requested level is remembered, so a fast drag never queues a
+    // backlog and never drops the final position.
+    Process {
+        id: setVolProc
+        property real targetVol: 0.5
+        property real pendingVol: -1
+        command: ["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", targetVol.toFixed(2)]
+        onRunningChanged: {
+            if (running) return;
+            if (pendingVol >= 0) Qt.callLater(root.flushVolume);
+            else volProc.running = true;
+        }
+    }
+
+    function setVolume(v: real): void {
+        root.volumeLevel = v;
+        if (root.volumeText !== "Muted") root.volumeText = Math.round(v * 100) + "%";
+        setVolProc.pendingVol = v;
+        if (!setVolProc.running) root.flushVolume();
+    }
+
+    function flushVolume(): void {
+        if (setVolProc.running || setVolProc.pendingVol < 0) return;
+        setVolProc.targetVol = setVolProc.pendingVol;
+        setVolProc.pendingVol = -1;
+        setVolProc.running = true;
     }
 
     Process {
@@ -196,12 +255,18 @@ ShellRoot {
         }
     }
 
+    // TLP records its active profile as the first field of /run/tlp/last_pwr
+    // (0 = performance, 1 = balanced, 2 = power-saver). The file is world
+    // readable and far cheaper to poll than spawning tlp-stat.
     Process {
         id: batProc
-        command: ["sh", "-c", "cat /sys/class/power_supply/BAT*/capacity /sys/class/power_supply/BAT*/status 2>/dev/null"]
+        command: ["sh", "-c", "cat /sys/class/power_supply/BAT*/capacity /sys/class/power_supply/BAT*/status 2>/dev/null; echo \"tlp $(cut -d' ' -f1 /run/tlp/last_pwr 2>/dev/null)\""]
         stdout: StdioCollector {
             onStreamFinished: {
                 var lines = this.text.trim().split("\n");
+                var tlpLine = lines.length > 0 && lines[lines.length - 1].startsWith("tlp") ? lines.pop() : "tlp";
+                var profiles = { "0": "performance", "1": "balanced", "2": "power-saver" };
+                root.tlpProfile = profiles[tlpLine.substring(3).trim()] || "";
                 if (lines.length >= 2) {
                     root.batteryText = lines[0] + "%";
                     root.batteryStatus = lines[1];
@@ -214,8 +279,9 @@ ShellRoot {
     }
 
     Process {
-        id: mpdProcess
-        command: ["systemd-run", "--user", "--", "kitty", "-e", "rmpc"]
+        id: mpdToggleProc
+        command: ["mpc", "toggle"]
+        onRunningChanged: if (!running) mpcProc.running = true
     }
 
 
@@ -358,7 +424,8 @@ ShellRoot {
                     nord6: root.nord6
                     fontPrimary: root.fontPrimary
                     mpdText: root.mpdText
-                    mpdProcess: mpdProcess
+                    playing: root.mpdPlaying
+                    toggleProcess: mpdToggleProc
                 }
 
                 // Clock
@@ -428,6 +495,15 @@ ShellRoot {
                     nord8: root.nord8
                     fontPrimary: root.fontPrimary
                 }
+
+                // Notification mute (kept last so it sits at the right edge)
+                NotifMuteModule {
+                    nord1: root.nord1
+                    nord6: root.nord6
+                    nord11: root.nord11
+                    muted: root.notifMuted
+                    onToggled: root.notifMuted = !root.notifMuted
+                }
             }
 
             // Compact Clock
@@ -458,6 +534,8 @@ ShellRoot {
     }
 
     // Phase 4: Popups
+    // Every popup content tree is wrapped in PopupHoverArea, which closes the
+    // popup once the pointer has left both the popup and its module.
     // Calendar Popup
     PopupWindow {
         id: calPopup
@@ -471,37 +549,42 @@ ShellRoot {
         height: 280
         color: "transparent"
 
-        Rectangle {
-            anchors.fill: parent
-            anchors.topMargin: 10
-            color: root.nord0
-            radius: 12
-            border.color: root.nord1
-            border.width: 1
+        PopupHoverArea {
+            popup: calPopup
+            anchorHovered: clockRect.hovered
 
-            Column {
-                anchors.centerIn: parent
-                spacing: 12
-                Text { text: Qt.formatDateTime(new Date(), "MMMM yyyy"); color: root.nord8; font.family: root.fontPrimary; font.pixelSize: 16; font.bold: true; anchors.horizontalCenter: parent.horizontalCenter }
-                
-                Grid {
-                    columns: 7; spacing: 8
-                    // Weekdays
-                    Repeater {
-                        model: ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]
-                        Text { text: modelData; color: root.nord4; font.family: root.fontPrimary; font.pixelSize: 12; width: 24; horizontalAlignment: Text.AlignHCenter }
-                    }
-                    // Simple representation of days 1-31
-                    Repeater {
-                        model: 31
-                        Rectangle {
-                            width: 24; height: 24; radius: 12
-                            color: (index + 1) === parseInt(Qt.formatDateTime(new Date(), "d")) ? root.nord8 : "transparent"
-                            Text {
-                                anchors.centerIn: parent
-                                text: index + 1
-                                color: (index + 1) === parseInt(Qt.formatDateTime(new Date(), "d")) ? root.nord0 : root.nord6
-                                font.family: root.fontPrimary; font.pixelSize: 12
+            Rectangle {
+                anchors.fill: parent
+                anchors.topMargin: 10
+                color: root.nord0
+                radius: 12
+                border.color: root.nord1
+                border.width: 1
+
+                Column {
+                    anchors.centerIn: parent
+                    spacing: 12
+                    Text { text: Qt.formatDateTime(new Date(), "MMMM yyyy"); color: root.nord8; font.family: root.fontPrimary; font.pixelSize: 16; font.bold: true; anchors.horizontalCenter: parent.horizontalCenter }
+                    
+                    Grid {
+                        columns: 7; spacing: 8
+                        // Weekdays
+                        Repeater {
+                            model: ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]
+                            Text { text: modelData; color: root.nord4; font.family: root.fontPrimary; font.pixelSize: 12; width: 24; horizontalAlignment: Text.AlignHCenter }
+                        }
+                        // Simple representation of days 1-31
+                        Repeater {
+                            model: 31
+                            Rectangle {
+                                width: 24; height: 24; radius: 12
+                                color: (index + 1) === parseInt(Qt.formatDateTime(new Date(), "d")) ? root.nord8 : "transparent"
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: index + 1
+                                    color: (index + 1) === parseInt(Qt.formatDateTime(new Date(), "d")) ? root.nord0 : root.nord6
+                                    font.family: root.fontPrimary; font.pixelSize: 12
+                                }
                             }
                         }
                     }
@@ -522,38 +605,42 @@ ShellRoot {
             onRunningChanged: if(!running) volProc.running = true
         }
 
-        Process {
-            id: setVolProc
-            property double targetVol: 0.5
-            command: ["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", targetVol.toFixed(2)]
-            onRunningChanged: if(!running) volProc.running = true
-        }
+        PopupHoverArea {
+            popup: volPopup
+            anchorHovered: volRect.hovered
+            // The drag holds the pointer grab, so hover can read false mid-drag.
+            hold: volSlider.pressed
 
-        Rectangle {
-            anchors.fill: parent; anchors.topMargin: 10; color: root.nord0; radius: 12; border.color: root.nord1
-            
-            Column {
-                anchors.centerIn: parent; spacing: 16; width: parent.width - 32
-                RowLayout {
-                    width: parent.width; spacing: 8
-                    Text { text: "Mute"; color: root.nord6; font.family: root.fontPrimary; font.pixelSize: 14 }
-                    Rectangle {
-                        Layout.alignment: Qt.AlignRight
-                        width: 40; height: 20; radius: 10
-                        color: root.volumeText === "Muted" ? root.nord11 : root.nord1
-                        MouseArea {
-                            anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                            onClicked: toggleMuteProc.running = true
+            Rectangle {
+                anchors.fill: parent; anchors.topMargin: 10; color: root.nord0; radius: 12; border.color: root.nord1
+                
+                Column {
+                    anchors.centerIn: parent; spacing: 16; width: parent.width - 32
+                    RowLayout {
+                        width: parent.width; spacing: 8
+                        Text { text: "Mute"; color: root.nord6; font.family: root.fontPrimary; font.pixelSize: 14 }
+                        Rectangle {
+                            Layout.alignment: Qt.AlignRight
+                            width: 40; height: 20; radius: 10
+                            color: root.volumeText === "Muted" ? root.nord11 : root.nord1
+                            MouseArea {
+                                anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                onClicked: toggleMuteProc.running = true
+                            }
                         }
                     }
-                }
-                Slider {
-                    width: parent.width
-                    from: 0.0; to: 1.0; value: root.volumeText === "Muted" ? 0.0 : parseInt(root.volumeText) / 100.0
-                    onValueChanged: {
-                        if (pressed) {
-                            setVolProc.targetVol = value
-                            setVolProc.running = true
+                    // The level is only pushed into the slider while it is not being
+                    // dragged. Binding it unconditionally let every 2s poll and every
+                    // wpctl round-trip snap the handle back mid-drag.
+                    Slider {
+                        id: volSlider
+                        width: parent.width
+                        from: 0.0; to: 1.0
+                        onMoved: root.setVolume(value)
+                        Binding on value {
+                            when: !volSlider.pressed
+                            value: root.volumeLevel
+                            restoreMode: Binding.RestoreNone
                         }
                     }
                 }
@@ -562,16 +649,31 @@ ShellRoot {
     }
 
     // Network Popup
+    // Each entry is { ssid, active }. The connected network is listed first.
     property var wifiList: []
     Process {
         id: scanWifiProc
-        command: ["sh", "-c", "nmcli -t -f ssid dev wifi | sort -u | grep -v '^$' | head -n 8"]
+        command: ["nmcli", "-t", "-f", "IN-USE,SIGNAL,SSID", "dev", "wifi"]
         stdout: StdioCollector {
             onStreamFinished: {
-                var out = this.text.trim();
-                if (out !== "") {
-                    root.wifiList = out.split("\n");
+                var lines = this.text.trim().split("\n");
+                var byName = {};
+                for (var i = 0; i < lines.length; i++) {
+                    // Terse rows look like "*:72:name". IN-USE and SIGNAL never
+                    // contain ':', and nmcli escapes any ':' inside the SSID.
+                    var m = lines[i].match(/^(.?):(\d*):(.*)$/);
+                    if (!m) continue;
+                    var ssid = m[3].replace(/\\:/g, ":").replace(/\\\\/g, "\\");
+                    if (ssid === "") continue;
+                    var signal = parseInt(m[2]) || 0;
+                    var entry = byName[ssid] || { ssid: ssid, active: false, signal: 0 };
+                    entry.active = entry.active || m[1] === "*";
+                    entry.signal = Math.max(entry.signal, signal);
+                    byName[ssid] = entry;
                 }
+                var list = Object.keys(byName).map(k => byName[k]);
+                list.sort((a, b) => (b.active - a.active) || (b.signal - a.signal));
+                if (list.length > 0) root.wifiList = list.slice(0, 8);
             }
         }
     }
@@ -580,7 +682,7 @@ ShellRoot {
         id: connectWifiProc
         property string targetSsid: ""
         command: ["nmcli", "dev", "wifi", "connect", targetSsid]
-        onRunningChanged: if(!running) wifiProc.running = true
+        onRunningChanged: if (!running) { wifiProc.running = true; scanWifiProc.running = true; }
     }
 
     PopupWindow {
@@ -588,20 +690,43 @@ ShellRoot {
         anchor { item: wifiRect; edges: Edges.Bottom; gravity: Edges.Bottom }
         visible: false; width: 220; height: 260; color: "transparent"
 
-        Rectangle {
-            anchors.fill: parent; anchors.topMargin: 10; color: root.nord0; radius: 12; border.color: root.nord1
-            
-            ListView {
-                anchors.fill: parent
-                anchors.margins: 12
-                model: root.wifiList
-                spacing: 8
-                delegate: Rectangle {
-                    width: parent.width; height: 32; radius: 8; color: root.nord1
-                    Text { anchors.verticalCenter: parent.verticalCenter; anchors.left: parent.left; anchors.leftMargin: 12; text: modelData; color: root.nord6; font.family: root.fontPrimary; font.pixelSize: 12; elide: Text.ElideRight; width: parent.width - 24 }
-                    MouseArea {
-                        anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                        onClicked: { connectWifiProc.targetSsid = modelData; connectWifiProc.running = true; }
+        PopupHoverArea {
+            popup: netPopup
+            anchorHovered: wifiRect.hovered
+
+            Rectangle {
+                anchors.fill: parent; anchors.topMargin: 10; color: root.nord0; radius: 12; border.color: root.nord1
+                
+                ListView {
+                    anchors.fill: parent
+                    anchors.margins: 12
+                    model: root.wifiList
+                    spacing: 8
+                    clip: true
+                    delegate: Rectangle {
+                        width: ListView.view.width; height: 32; radius: 8
+                        color: modelData.active ? root.nord8 : root.nord1
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter; anchors.left: parent.left; anchors.leftMargin: 12
+                            width: parent.width - 24 - (connectedLabel.visible ? connectedLabel.implicitWidth + 8 : 0)
+                            text: modelData.ssid; elide: Text.ElideRight
+                            color: modelData.active ? root.nord0 : root.nord6
+                            font.family: root.fontPrimary; font.pixelSize: 12; font.bold: modelData.active
+                        }
+                        Text {
+                            id: connectedLabel
+                            visible: modelData.active
+                            anchors.verticalCenter: parent.verticalCenter; anchors.right: parent.right; anchors.rightMargin: 12
+                            text: "Connected"; color: root.nord0
+                            font.family: root.fontPrimary; font.pixelSize: 10
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            // Re-running "connect" on the active network only drops it briefly.
+                            enabled: !modelData.active
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: { connectWifiProc.targetSsid = modelData.ssid; connectWifiProc.running = true; }
+                        }
                     }
                 }
             }
@@ -609,28 +734,54 @@ ShellRoot {
     }
 
     // Power/TLP Popup
-    Process { id: tlpAcProc; command: ["pkexec", "tlp", "ac"] }
-    Process { id: tlpBatProc; command: ["pkexec", "tlp", "bat"] }
+    // TLP 1.10 profiles: "ac" is an alias of performance, "bat" of balanced.
+    Process {
+        id: tlpSetProc
+        property string profile: "performance"
+        command: ["pkexec", "tlp", profile]
+        onRunningChanged: if (!running) batProc.running = true
+    }
 
     PopupWindow {
         id: pwrPopup
         anchor { item: batRect; edges: Edges.Bottom; gravity: Edges.Bottom }
-        visible: false; width: 160; height: 120; color: "transparent"
+        visible: false; width: 180; height: 196; color: "transparent"
 
-        Rectangle {
-            anchors.fill: parent; anchors.topMargin: 10; color: root.nord0; radius: 12; border.color: root.nord1
-            
-            Column {
-                anchors.centerIn: parent; spacing: 12; width: parent.width - 24
-                Rectangle {
-                    width: parent.width; height: 36; radius: 8; color: root.nord1
-                    Text { anchors.centerIn: parent; text: "AC Mode"; color: root.nord6; font.family: root.fontPrimary; font.pixelSize: 14 }
-                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { tlpAcProc.running = true; pwrPopup.visible = false; } }
-                }
-                Rectangle {
-                    width: parent.width; height: 36; radius: 8; color: root.nord1
-                    Text { anchors.centerIn: parent; text: "Battery Mode"; color: root.nord6; font.family: root.fontPrimary; font.pixelSize: 14 }
-                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { tlpBatProc.running = true; pwrPopup.visible = false; } }
+        PopupHoverArea {
+            popup: pwrPopup
+            anchorHovered: batRect.hovered
+
+            Rectangle {
+                anchors.fill: parent; anchors.topMargin: 10; color: root.nord0; radius: 12; border.color: root.nord1
+                
+                Column {
+                    anchors.centerIn: parent; spacing: 10; width: parent.width - 24
+                    Text {
+                        width: parent.width; horizontalAlignment: Text.AlignHCenter
+                        text: "TLP: " + (root.tlpProfile !== "" ? root.tlpProfile : "unknown")
+                        color: root.nord4; font.family: root.fontPrimary; font.pixelSize: 12
+                    }
+                    Repeater {
+                        model: [
+                            { profile: "performance", label: "Performance (AC)" },
+                            { profile: "balanced", label: "Balanced (BAT)" },
+                            { profile: "power-saver", label: "Power Saver" }
+                        ]
+                        Rectangle {
+                            readonly property bool current: root.tlpProfile === modelData.profile
+                            width: parent.width; height: 36; radius: 8
+                            color: current ? root.nord8 : root.nord1
+                            Text {
+                                anchors.centerIn: parent; text: modelData.label
+                                color: parent.current ? root.nord0 : root.nord6
+                                font.family: root.fontPrimary; font.pixelSize: 14; font.bold: parent.current
+                            }
+                            MouseArea {
+                                anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                onClicked: { tlpSetProc.profile = modelData.profile; tlpSetProc.running = true; pwrPopup.visible = false; }
+                            }
+                        }
+                    }
                 }
             }
         }

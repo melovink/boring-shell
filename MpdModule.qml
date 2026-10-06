@@ -6,9 +6,11 @@ Rectangle {
     property color nord6
     property string fontPrimary
     property string mpdText
-    property Process mpdProcess
+    property bool playing: false
+    property Process toggleProcess
 
     width: Math.max(60, mpdTextItem.implicitWidth + 24); height: 28; color: nord1; radius: 12; anchors.verticalCenter: parent.verticalCenter
-    Text { id: mpdTextItem; anchors.centerIn: parent; text: mpdText; color: nord6; font.family: fontPrimary; font.pixelSize: 12 }
-    MouseArea { anchors.fill: parent; onClicked: mpdProcess.running = true; cursorShape: Qt.PointingHandCursor }
+    // Dimmed while paused/stopped so the click result is visible at a glance.
+    Text { id: mpdTextItem; anchors.centerIn: parent; text: mpdText; color: nord6; opacity: playing ? 1.0 : 0.55; font.family: fontPrimary; font.pixelSize: 12 }
+    MouseArea { anchors.fill: parent; onClicked: toggleProcess.running = true; cursorShape: Qt.PointingHandCursor }
 }

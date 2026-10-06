@@ -13,6 +13,8 @@ Row {
 
     spacing: 8
     anchors.verticalCenter: parent.verticalCenter
+
+    HoverHandler { id: trayHover }
     
     Repeater {
         model: SystemTray.items
@@ -68,62 +70,67 @@ Row {
             menu: trayPopup.visible && activeTrayData ? activeTrayData.menu : null
         }
 
-        Rectangle {
-            anchors.fill: parent
-            anchors.topMargin: 10
-            color: "#2E3440"
-            radius: 12
-            border.color: "#3B4252"
-            border.width: 1
+        PopupHoverArea {
+            popup: trayPopup
+            anchorHovered: trayHover.hovered
 
-            ListView {
-                id: menuListView
+            Rectangle {
                 anchors.fill: parent
-                anchors.margins: 10
-                model: menuOpener.children
-                interactive: contentHeight > height
-                clip: true
-                spacing: 4
-                delegate: Rectangle {
-                    width: menuListView.width
-                    height: modelData.isSeparator ? 1 : 32
-                    color: modelData.isSeparator ? "#3B4252" : (hover.hovered ? "#3B4252" : "transparent")
-                    radius: 6
+                anchors.topMargin: 10
+                color: "#2E3440"
+                radius: 12
+                border.color: "#3B4252"
+                border.width: 1
 
-                    Row {
-                        anchors.fill: parent
-                        anchors.margins: 6
-                        spacing: 8
-                        visible: !modelData.isSeparator
-                        Image {
-                            source: modelData.icon
-                            width: 16; height: 16
-                            anchors.verticalCenter: parent.verticalCenter
-                            sourceSize: Qt.size(16, 16)
-                            visible: modelData.icon !== ""
-                        }
-                        Text {
-                            text: modelData.text
-                            color: modelData.enabled ? "#ECEFF4" : "#81A1C1"
-                            font.pixelSize: 14
-                            font.family: "Inter"
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
-                    }
+                ListView {
+                    id: menuListView
+                    anchors.fill: parent
+                    anchors.margins: 10
+                    model: menuOpener.children
+                    interactive: contentHeight > height
+                    clip: true
+                    spacing: 4
+                    delegate: Rectangle {
+                        width: menuListView.width
+                        height: modelData.isSeparator ? 1 : 32
+                        color: modelData.isSeparator ? "#3B4252" : (hover.hovered ? "#3B4252" : "transparent")
+                        radius: 6
 
-                    HoverHandler {
-                        id: hover
-                        enabled: !modelData.isSeparator && modelData.enabled
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        enabled: !modelData.isSeparator && modelData.enabled
-                        onClicked: {
-                            modelData.triggered();
-                            trayPopup.visible = false;
+                        Row {
+                            anchors.fill: parent
+                            anchors.margins: 6
+                            spacing: 8
+                            visible: !modelData.isSeparator
+                            Image {
+                                source: modelData.icon
+                                width: 16; height: 16
+                                anchors.verticalCenter: parent.verticalCenter
+                                sourceSize: Qt.size(16, 16)
+                                visible: modelData.icon !== ""
+                            }
+                            Text {
+                                text: modelData.text
+                                color: modelData.enabled ? "#ECEFF4" : "#81A1C1"
+                                font.pixelSize: 14
+                                font.family: "Inter"
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
                         }
-                        cursorShape: Qt.PointingHandCursor
+
+                        HoverHandler {
+                            id: hover
+                            enabled: !modelData.isSeparator && modelData.enabled
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            enabled: !modelData.isSeparator && modelData.enabled
+                            onClicked: {
+                                modelData.triggered();
+                                trayPopup.visible = false;
+                            }
+                            cursorShape: Qt.PointingHandCursor
+                        }
                     }
                 }
             }

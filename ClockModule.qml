@@ -12,6 +12,7 @@ Rectangle {
     property string fontMono
     property PopupWindow calPopup
     property var otherPopups: []
+    readonly property bool hovered: clockMouse.containsMouse
 
     property alias timeText: clockText.text
     width: 80; height: 28; color: "transparent"; anchors.verticalCenter: parent.verticalCenter
@@ -24,7 +25,8 @@ Rectangle {
         font.pixelSize: 14
     }
     MouseArea {
-        anchors.fill: parent
+        id: clockMouse
+        anchors.fill: parent; hoverEnabled: true
         onClicked: {
             calPopup.visible = !calPopup.visible;
             for (var i = 0; i < otherPopups.length; i++) otherPopups[i].visible = false;

@@ -9,6 +9,7 @@ Rectangle {
     property string volumeText
     property PopupWindow volPopup
     property var otherPopups: []
+    readonly property bool hovered: volMouse.containsMouse
 
     width: volMouse.containsMouse ? 80 : 40; height: 28; color: nord1; radius: 12; anchors.verticalCenter: parent.verticalCenter
     Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }

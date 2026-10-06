@@ -13,6 +13,7 @@ Rectangle {
     property PopupWindow netPopup
     property var otherPopups: []
     property Process scanWifiProc
+    readonly property bool hovered: wifiMouse.containsMouse
 
     width: wifiMouse.containsMouse ? 120 : 40; height: 28; color: nord1; radius: 12; anchors.verticalCenter: parent.verticalCenter
     Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
