@@ -1,9 +1,15 @@
 import QtQuick
 import Quickshell
+import Quickshell.Wayland
 import Quickshell.Services.SystemTray
 
 Row {
     id: trayRoot
+    property color nord0: "#2E3440"
+    property color nord1: "#3B4252"
+    property color nord6: "#ECEFF4"
+    property color nord9: "#81A1C1"
+    property real surfaceOpacity: 0.8
     property var panelWindow
     property bool isTrayMenuOpen: trayPopup.visible
     property var activeTrayData: null
@@ -59,6 +65,11 @@ Row {
         height: Math.min(400, menuListView.contentHeight + 20)
         color: "transparent"
 
+        BackgroundEffect.blurRegion: Region {
+            item: trayBackground
+            radius: trayBackground.radius
+        }
+
         anchor {
             item: activeTrayItem
             edges: Edges.Bottom
@@ -74,13 +85,12 @@ Row {
             popup: trayPopup
             anchorHovered: trayHover.hovered
 
-            Rectangle {
+            GradientBorder {
+                id: trayBackground
                 anchors.fill: parent
                 anchors.topMargin: 10
-                color: "#2E3440"
+                color: Qt.alpha(trayRoot.nord0, trayRoot.surfaceOpacity)
                 radius: 12
-                border.color: "#3B4252"
-                border.width: 1
 
                 ListView {
                     id: menuListView
@@ -93,7 +103,9 @@ Row {
                     delegate: Rectangle {
                         width: menuListView.width
                         height: modelData.isSeparator ? 1 : 32
-                        color: modelData.isSeparator ? "#3B4252" : (hover.hovered ? "#3B4252" : "transparent")
+                        color: modelData.isSeparator
+                            ? Qt.alpha(trayRoot.nord1, trayRoot.surfaceOpacity)
+                            : (hover.hovered ? Qt.alpha(trayRoot.nord1, trayRoot.surfaceOpacity) : "transparent")
                         radius: 6
 
                         Row {
@@ -110,7 +122,7 @@ Row {
                             }
                             Text {
                                 text: modelData.text
-                                color: modelData.enabled ? "#ECEFF4" : "#81A1C1"
+                                color: modelData.enabled ? trayRoot.nord6 : trayRoot.nord9
                                 font.pixelSize: 14
                                 font.family: "Inter"
                                 anchors.verticalCenter: parent.verticalCenter

@@ -9,13 +9,14 @@ Rectangle {
     property color nord6
     property color nord8
     property string fontPrimary
+    property real surfaceOpacity: 0.8
     
     // Configurable GIF path
     property string gifPath: "file:///home/melovink/gifs/ellen.gif" // User can change this
 
     width: gifMouse.containsMouse ? 120 : 40
     height: 28
-    color: nord1
+    color: Qt.alpha(nord1, surfaceOpacity)
     radius: 12
     anchors.verticalCenter: parent.verticalCenter
     
@@ -42,6 +43,11 @@ Rectangle {
             source: rootItem.gifPath
             fillMode: Image.PreserveAspectFit
             playing: rootItem.isActive
+        }
+
+        GradientBorder {
+            anchors.fill: parent
+            radius: 12
         }
     }
 }

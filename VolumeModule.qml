@@ -7,11 +7,12 @@ Rectangle {
     property color nord6
     property string fontPrimary
     property string volumeText
+    property real surfaceOpacity: 0.8
     property PopupWindow volPopup
     property var otherPopups: []
     readonly property bool hovered: volMouse.containsMouse
 
-    width: volMouse.containsMouse ? 80 : 40; height: 28; color: nord1; radius: 12; anchors.verticalCenter: parent.verticalCenter
+    width: volMouse.containsMouse ? 80 : 40; height: 28; color: Qt.alpha(nord1, surfaceOpacity); radius: 12; anchors.verticalCenter: parent.verticalCenter
     Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
     Row {
         anchors.centerIn: parent; spacing: 8

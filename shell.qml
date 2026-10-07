@@ -21,6 +21,9 @@ ShellRoot {
     property color nord9: "#81A1C1"
     property color nord11: "#BF616A"
 
+    // Match Kitty's background_opacity while keeping foreground content opaque.
+    readonly property real surfaceOpacity: 0.78
+
     property string fontPrimary: "Inter"
     property string fontMono: "JetBrains Mono"
 
@@ -332,6 +335,11 @@ ShellRoot {
         color: "transparent"
         WlrLayershell.layer: WlrLayer.Overlay
 
+        BackgroundEffect.blurRegion: Region {
+            item: background
+            radius: background.radius
+        }
+
         mask: Region {
             x: background.x
             y: background.y
@@ -346,7 +354,7 @@ ShellRoot {
         property bool isExpanded: root.barHeld || hoverHandler.hovered || calPopup.visible || volPopup.visible || netPopup.visible || pwrPopup.visible || trayModule.isTrayMenuOpen
         property real targetWidth: notifActive ? 520 : (isExpanded ? 780 : 120)
 
-        Rectangle {
+        GradientBorder {
             id: background
             anchors.top: parent.top
             anchors.topMargin: dynamicIsland.notifActive ? -16 : (dynamicIsland.isExpanded ? -16 : -55)
@@ -357,13 +365,15 @@ ShellRoot {
             anchors.horizontalCenter: parent.horizontalCenter
             width: dynamicIsland.targetWidth
             height: dynamicIsland.notifActive ? 96 : 56
-            color: root.nord0
+            color: Qt.alpha(root.nord0, root.surfaceOpacity)
             radius: 16
-            border.color: root.nord1
-            border.width: 1
+            // Place the lightest point one third up from the bottom edge, then
+            // fade it back out before the clipped bottom edge.
+            gradientEndPosition: 2 / 3
+            gradientTail: "#00fff7ff"
 
             Behavior on width {
-                NumberAnimation { duration: 320; easing.type: Easing.OutQuint }
+                NumberAnimation { duration: 380; easing.type: Easing.OutQuint }
             }
 
             Behavior on height {
@@ -422,6 +432,7 @@ ShellRoot {
                 MpdModule {
                     nord1: root.nord1
                     nord6: root.nord6
+                    surfaceOpacity: root.surfaceOpacity
                     fontPrimary: root.fontPrimary
                     mpdText: root.mpdText
                     playing: root.mpdPlaying
@@ -447,6 +458,7 @@ ShellRoot {
                     id: volRect
                     nord1: root.nord1
                     nord6: root.nord6
+                    surfaceOpacity: root.surfaceOpacity
                     fontPrimary: root.fontPrimary
                     volumeText: root.volumeText
                     volPopup: volPopup
@@ -459,6 +471,7 @@ ShellRoot {
                     nord1: root.nord1
                     nord4: root.nord4
                     nord6: root.nord6
+                    surfaceOpacity: root.surfaceOpacity
                     fontPrimary: root.fontPrimary
                     wifiText: root.wifiText
                     networkType: root.networkType
@@ -472,6 +485,7 @@ ShellRoot {
                     id: batRect
                     nord1: root.nord1
                     nord6: root.nord6
+                    surfaceOpacity: root.surfaceOpacity
                     fontPrimary: root.fontPrimary
                     batteryText: root.batteryText
                     batteryStatus: root.batteryStatus
@@ -482,6 +496,11 @@ ShellRoot {
                 // App Tray
                 TrayModule {
                     id: trayModule
+                    nord0: root.nord0
+                    nord1: root.nord1
+                    nord6: root.nord6
+                    nord9: root.nord9
+                    surfaceOpacity: root.surfaceOpacity
                     panelWindow: dynamicIsland
                     otherPopups: [calPopup, volPopup, netPopup, pwrPopup]
                 }
@@ -493,6 +512,7 @@ ShellRoot {
                     nord4: root.nord4
                     nord6: root.nord6
                     nord8: root.nord8
+                    surfaceOpacity: root.surfaceOpacity
                     fontPrimary: root.fontPrimary
                 }
 
@@ -501,6 +521,7 @@ ShellRoot {
                     nord1: root.nord1
                     nord6: root.nord6
                     nord11: root.nord11
+                    surfaceOpacity: root.surfaceOpacity
                     muted: root.notifMuted
                     onToggled: root.notifMuted = !root.notifMuted
                 }
@@ -549,17 +570,21 @@ ShellRoot {
         height: 280
         color: "transparent"
 
+        BackgroundEffect.blurRegion: Region {
+            item: calendarBackground
+            radius: calendarBackground.radius
+        }
+
         PopupHoverArea {
             popup: calPopup
             anchorHovered: clockRect.hovered
 
-            Rectangle {
+            GradientBorder {
+                id: calendarBackground
                 anchors.fill: parent
                 anchors.topMargin: 10
-                color: root.nord0
+                color: Qt.alpha(root.nord0, root.surfaceOpacity)
                 radius: 12
-                border.color: root.nord1
-                border.width: 1
 
                 Column {
                     anchors.centerIn: parent
@@ -598,6 +623,11 @@ ShellRoot {
         id: volPopup
         anchor { item: volRect; edges: Edges.Bottom; gravity: Edges.Bottom }
         visible: false; width: 200; height: 100; color: "transparent"
+
+        BackgroundEffect.blurRegion: Region {
+            item: volumeBackground
+            radius: volumeBackground.radius
+        }
         
         Process {
             id: toggleMuteProc
@@ -611,8 +641,9 @@ ShellRoot {
             // The drag holds the pointer grab, so hover can read false mid-drag.
             hold: volSlider.pressed
 
-            Rectangle {
-                anchors.fill: parent; anchors.topMargin: 10; color: root.nord0; radius: 12; border.color: root.nord1
+            GradientBorder {
+                id: volumeBackground
+                anchors.fill: parent; anchors.topMargin: 10; color: Qt.alpha(root.nord0, root.surfaceOpacity); radius: 12
                 
                 Column {
                     anchors.centerIn: parent; spacing: 16; width: parent.width - 32
@@ -622,7 +653,9 @@ ShellRoot {
                         Rectangle {
                             Layout.alignment: Qt.AlignRight
                             width: 40; height: 20; radius: 10
-                            color: root.volumeText === "Muted" ? root.nord11 : root.nord1
+                            color: root.volumeText === "Muted"
+                                ? Qt.alpha(root.nord11, root.surfaceOpacity)
+                                : Qt.alpha(root.nord1, root.surfaceOpacity)
                             MouseArea {
                                 anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                                 onClicked: toggleMuteProc.running = true
@@ -690,12 +723,18 @@ ShellRoot {
         anchor { item: wifiRect; edges: Edges.Bottom; gravity: Edges.Bottom }
         visible: false; width: 220; height: 260; color: "transparent"
 
+        BackgroundEffect.blurRegion: Region {
+            item: networkBackground
+            radius: networkBackground.radius
+        }
+
         PopupHoverArea {
             popup: netPopup
             anchorHovered: wifiRect.hovered
 
-            Rectangle {
-                anchors.fill: parent; anchors.topMargin: 10; color: root.nord0; radius: 12; border.color: root.nord1
+            GradientBorder {
+                id: networkBackground
+                anchors.fill: parent; anchors.topMargin: 10; color: Qt.alpha(root.nord0, root.surfaceOpacity); radius: 12
                 
                 ListView {
                     anchors.fill: parent
@@ -705,7 +744,9 @@ ShellRoot {
                     clip: true
                     delegate: Rectangle {
                         width: ListView.view.width; height: 32; radius: 8
-                        color: modelData.active ? root.nord8 : root.nord1
+                        color: modelData.active
+                            ? Qt.alpha(root.nord8, root.surfaceOpacity)
+                            : Qt.alpha(root.nord1, root.surfaceOpacity)
                         Text {
                             anchors.verticalCenter: parent.verticalCenter; anchors.left: parent.left; anchors.leftMargin: 12
                             width: parent.width - 24 - (connectedLabel.visible ? connectedLabel.implicitWidth + 8 : 0)
@@ -747,12 +788,18 @@ ShellRoot {
         anchor { item: batRect; edges: Edges.Bottom; gravity: Edges.Bottom }
         visible: false; width: 180; height: 196; color: "transparent"
 
+        BackgroundEffect.blurRegion: Region {
+            item: powerBackground
+            radius: powerBackground.radius
+        }
+
         PopupHoverArea {
             popup: pwrPopup
             anchorHovered: batRect.hovered
 
-            Rectangle {
-                anchors.fill: parent; anchors.topMargin: 10; color: root.nord0; radius: 12; border.color: root.nord1
+            GradientBorder {
+                id: powerBackground
+                anchors.fill: parent; anchors.topMargin: 10; color: Qt.alpha(root.nord0, root.surfaceOpacity); radius: 12
                 
                 Column {
                     anchors.centerIn: parent; spacing: 10; width: parent.width - 24
@@ -770,7 +817,9 @@ ShellRoot {
                         Rectangle {
                             readonly property bool current: root.tlpProfile === modelData.profile
                             width: parent.width; height: 36; radius: 8
-                            color: current ? root.nord8 : root.nord1
+                            color: current
+                                ? Qt.alpha(root.nord8, root.surfaceOpacity)
+                                : Qt.alpha(root.nord1, root.surfaceOpacity)
                             Text {
                                 anchors.centerIn: parent; text: modelData.label
                                 color: parent.current ? root.nord0 : root.nord6
@@ -822,10 +871,15 @@ ShellRoot {
     PanelWindow {
         id: cavaBar
         anchors { bottom: true; left: true; right: true }
-        height: root.bottomBarMode === "wallpaper" ? 340 : (root.bottomBarMode === "launcher" ? 500 : 60)
-        color: "transparent"
-        exclusionMode: ExclusionMode.Ignore
-        WlrLayershell.layer: WlrLayer.Overlay
+            height: root.bottomBarMode === "wallpaper" ? 340 : (root.bottomBarMode === "launcher" ? 500 : 60)
+            color: "transparent"
+            exclusionMode: ExclusionMode.Ignore
+            WlrLayershell.layer: WlrLayer.Overlay
+
+            BackgroundEffect.blurRegion: Region {
+                item: cavaBackground
+                radius: cavaBackground.radius
+            }
 
         property bool isHovered: cavaHoverHandler.hovered
         
@@ -836,7 +890,7 @@ ShellRoot {
             height: cavaBackground.height
         }
 
-        Rectangle {
+        GradientBorder {
             id: cavaBackground
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
@@ -845,10 +899,8 @@ ShellRoot {
             width: root.bottomBarMode === "wallpaper" ? 800 : (root.bottomBarMode === "launcher" ? 540 : 300)
             height: root.bottomBarMode === "wallpaper" ? 340 : (root.bottomBarMode === "launcher" ? 500 : 76)
             
-            color: root.nord0
+            color: Qt.alpha(root.nord0, root.surfaceOpacity)
             radius: 16
-            border.color: root.nord1
-            border.width: 1
             clip: true
 
             Behavior on anchors.bottomMargin { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }

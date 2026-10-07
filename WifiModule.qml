@@ -10,12 +10,13 @@ Rectangle {
     property string fontPrimary
     property string wifiText
     property string networkType
+    property real surfaceOpacity: 0.8
     property PopupWindow netPopup
     property var otherPopups: []
     property Process scanWifiProc
     readonly property bool hovered: wifiMouse.containsMouse
 
-    width: wifiMouse.containsMouse ? 120 : 40; height: 28; color: nord1; radius: 12; anchors.verticalCenter: parent.verticalCenter
+    width: wifiMouse.containsMouse ? 120 : 40; height: 28; color: Qt.alpha(nord1, surfaceOpacity); radius: 12; anchors.verticalCenter: parent.verticalCenter
     Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
     Row {
         anchors.centerIn: parent; spacing: 8

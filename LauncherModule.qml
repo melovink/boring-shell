@@ -126,7 +126,7 @@ Item {
             }
             
             background: Rectangle {
-                color: parent.hovered ? root.nord1 : "transparent"
+                color: parent.hovered ? Qt.alpha(root.nord1, root.surfaceOpacity) : "transparent"
                 radius: 8
             }
             

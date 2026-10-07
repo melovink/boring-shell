@@ -8,12 +8,13 @@ Rectangle {
     property color nord6
     property color nord11
     property bool muted: false
+    property real surfaceOpacity: 0.8
 
     readonly property bool hovered: muteMouse.containsMouse
 
     signal toggled()
 
-    width: 40; height: 28; color: nord1; radius: 12; anchors.verticalCenter: parent.verticalCenter
+    width: 40; height: 28; color: Qt.alpha(nord1, surfaceOpacity); radius: 12; anchors.verticalCenter: parent.verticalCenter
 
     SvgIcon {
         anchors.centerIn: parent; width: 16; height: 16

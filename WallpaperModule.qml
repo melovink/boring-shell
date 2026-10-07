@@ -84,7 +84,7 @@ Item {
             width: 320
             height: carousel.height
             radius: 12
-            color: root.nord1
+            color: Qt.alpha(root.nord1, root.surfaceOpacity)
             clip: true
             
             Image {

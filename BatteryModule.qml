@@ -8,11 +8,12 @@ Rectangle {
     property string fontPrimary
     property string batteryText
     property string batteryStatus
+    property real surfaceOpacity: 0.8
     property PopupWindow pwrPopup
     property var otherPopups: []
     readonly property bool hovered: batMouse.containsMouse
 
-    width: batMouse.containsMouse ? 140 : 40; height: 28; color: nord1; radius: 12; anchors.verticalCenter: parent.verticalCenter
+    width: batMouse.containsMouse ? 140 : 40; height: 28; color: Qt.alpha(nord1, surfaceOpacity); radius: 12; anchors.verticalCenter: parent.verticalCenter
     Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
     Row {
         anchors.centerIn: parent; spacing: 8
