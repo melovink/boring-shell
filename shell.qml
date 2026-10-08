@@ -23,6 +23,9 @@ ShellRoot {
 
     // Match Kitty's background_opacity while keeping foreground content opaque.
     readonly property real surfaceOpacity: 0.78
+    // Keep the bar's geometry motion in sync with Spotlight's rubber spring.
+    readonly property real rubberSpring: 7.0
+    readonly property real rubberDamping: 0.45
 
     property string fontPrimary: "Inter"
     property string fontMono: "JetBrains Mono"
@@ -331,12 +334,23 @@ ShellRoot {
         // stuttered badly; the Region mask already trims input to the bar itself,
         // so the extra room is never hit.
         height: 100
-        exclusiveZone: 0
+        // Reserve only the visible portion of the expanded bar so application
+        // windows move below it instead of being covered by the overlay layer.
+        readonly property int edgeMargin: 8
+        readonly property int windowMargin: 8
+        readonly property int hiddenTopMargin: -56
+        readonly property int revealDelay: 280
+        readonly property int expandedExclusiveZone: edgeMargin + 46
+        exclusiveZone: dynamicIsland.notifActive
+            ? dynamicIsland.notificationExclusiveZone
+            : (dynamicIsland.isExpanded ? dynamicIsland.expandedExclusiveZone : 0)
         color: "transparent"
         WlrLayershell.layer: WlrLayer.Overlay
 
         BackgroundEffect.blurRegion: Region {
-            item: background
+            // Drop the region before the closing spring moves the bar away;
+            // otherwise the compositor can leave a blurred rectangle behind.
+            item: dynamicIsland.isExpanded || dynamicIsland.notifActive ? background : null
             radius: background.radius
         }
 
@@ -352,32 +366,68 @@ ShellRoot {
         // expanded bar, so the bar grows into the card rather than jumping.
         readonly property bool notifActive: root.activeNotification !== null
         property bool isExpanded: root.barHeld || hoverHandler.hovered || calPopup.visible || volPopup.visible || netPopup.visible || pwrPopup.visible || trayModule.isTrayMenuOpen
-        property real targetWidth: notifActive ? 520 : (isExpanded ? 780 : 120)
+        property bool barRevealComplete: false
+        property real targetWidth: notifActive ? 520 : (barRevealComplete ? 780 : 120)
+
+        onIsExpandedChanged: {
+            if (isExpanded) {
+                revealTimer.restart();
+            } else {
+                revealTimer.stop();
+                barRevealComplete = false;
+            }
+        }
+
+        Timer {
+            id: revealTimer
+            interval: dynamicIsland.revealDelay
+            repeat: false
+            onTriggered: {
+                if (dynamicIsland.isExpanded) dynamicIsland.barRevealComplete = true;
+            }
+        }
 
         GradientBorder {
             id: background
             anchors.top: parent.top
-            anchors.topMargin: dynamicIsland.notifActive ? -16 : (dynamicIsland.isExpanded ? -16 : -55)
+            anchors.topMargin: dynamicIsland.notifActive
+                ? dynamicIsland.edgeMargin
+                : (dynamicIsland.isExpanded ? dynamicIsland.edgeMargin : dynamicIsland.hiddenTopMargin)
 
             Behavior on anchors.topMargin {
-                NumberAnimation { duration: 260; easing.type: Easing.OutQuint }
+                SpringAnimation {
+                    spring: root.rubberSpring
+                    damping: root.rubberDamping
+                    mass: 1
+                    epsilon: 0.25
+                }
             }
             anchors.horizontalCenter: parent.horizontalCenter
             width: dynamicIsland.targetWidth
-            height: dynamicIsland.notifActive ? 96 : 56
+            height: dynamicIsland.notifActive ? 66 : 46
             color: Qt.alpha(root.nord0, root.surfaceOpacity)
-            radius: 16
+            radius: height / 2
             // Place the lightest point one third up from the bottom edge, then
             // fade it back out before the clipped bottom edge.
-            gradientEndPosition: 2 / 3
+            gradientEndPosition: 1 / 3
             gradientTail: "#00fff7ff"
 
             Behavior on width {
-                NumberAnimation { duration: 380; easing.type: Easing.OutQuint }
+                SpringAnimation {
+                    spring: root.rubberSpring
+                    damping: root.rubberDamping
+                    mass: 1
+                    epsilon: 0.25
+                }
             }
 
             Behavior on height {
-                NumberAnimation { duration: 260; easing.type: Easing.OutQuint }
+                SpringAnimation {
+                    spring: root.rubberSpring
+                    damping: root.rubberDamping
+                    mass: 1
+                    epsilon: 0.25
+                }
             }
 
             HoverHandler {
@@ -412,9 +462,9 @@ ShellRoot {
             Row {
                 id: expandedModules
                 anchors.centerIn: parent
-                anchors.verticalCenterOffset: 8
+                anchors.verticalCenterOffset: 0
                 spacing: 16
-                opacity: dynamicIsland.notifActive ? 0.0 : (dynamicIsland.isExpanded ? 1.0 : 0.0)
+                opacity: dynamicIsland.notifActive ? 0.0 : (dynamicIsland.barRevealComplete ? 1.0 : 0.0)
                 visible: opacity > 0
 
                 Behavior on opacity {
@@ -531,12 +581,12 @@ ShellRoot {
             Text {
                 id: compactClock
                 anchors.centerIn: parent
-                anchors.verticalCenterOffset: 8
+                anchors.verticalCenterOffset: 0
                 text: Qt.formatDateTime(new Date(), "hh:mm")
                 color: root.nord6
                 font.family: root.fontMono
                 font.pixelSize: 14
-                opacity: dynamicIsland.notifActive ? 0.0 : (dynamicIsland.isExpanded ? 0.0 : 1.0)
+                opacity: dynamicIsland.notifActive ? 0.0 : (dynamicIsland.barRevealComplete ? 0.0 : 1.0)
                 visible: opacity > 0
 
                 Behavior on opacity { NumberAnimation { duration: 190; easing.type: Easing.OutQuint } }

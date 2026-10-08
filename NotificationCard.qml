@@ -67,19 +67,17 @@ Item {
         id: content
         anchors.fill: parent
 
-        // The card hangs 16px off the top of the screen, matching the bar's
-        // expanded state, so only the lower 80px of these 96 are ever on screen.
-        // Everything is therefore positioned from the bottom edge instead of the
-        // top, which is also what keeps the 16px that leaves the screen empty.
+        // Keep the compact notification layout inside the bar's current 66px
+        // pill, including room for a two-line body.
         Column {
             id: text
             anchors.left: parent.left
             anchors.leftMargin: 66
             anchors.right: stamp.left
             anchors.rightMargin: 12
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: 6
-            spacing: 2
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.verticalCenterOffset: 13
+            spacing: 1
 
             Row {
                 id: labelRow
@@ -121,7 +119,7 @@ Item {
             Text {
                 id: body
                 width: parent.width
-                height: 32
+                height: 28
                 text: card.notification ? card.notification.body : ""
                 color: card.nord4
                 font.family: card.fontPrimary
