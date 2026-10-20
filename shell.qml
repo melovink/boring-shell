@@ -50,8 +50,11 @@ ShellRoot {
     // Transient expanded state driven by holding the peek key. Kept separate from
     // the hover-driven expansion so the bind does not have to steal the pointer.
     property bool barHeld: false
-    // Do-not-disturb, toggled from the bell button at the right end of the bar.
+    // Do-not-disturb, toggled from the bell button in the corner controls.
     property bool notifMuted: false
+    // The floating clock is visible by default, and can be hidden from the
+    // top-right controls bar.
+    property bool floatingClockEnabled: true
 
     NotificationServer {
         onNotification: n => root.showNotification(n)
@@ -327,7 +330,7 @@ ShellRoot {
     }
 
     // Floating centered clock (stays behind all windows)
-    FloatingClock {}
+    FloatingClock { visible: root.floatingClockEnabled }
 
     PanelWindow {
         id: dynamicIsland
@@ -617,16 +620,6 @@ ShellRoot {
                     surfaceOpacity: root.surfaceOpacity
                     fontPrimary: root.fontPrimary
                 }
-
-                // Notification mute (kept last so it sits at the right edge)
-                NotifMuteModule {
-                    nord1: root.nord1
-                    nord6: root.nord6
-                    nord11: root.nord11
-                    surfaceOpacity: root.surfaceOpacity
-                    muted: root.notifMuted
-                    onToggled: root.notifMuted = !root.notifMuted
-                }
             }
 
             // Compact Clock
@@ -652,6 +645,90 @@ ShellRoot {
                 compactClock.text = timeString
                 clockRect.timeText = timeString
 
+            }
+        }
+    }
+
+    // Corner controls reveal from the top-right edge and use the same blurred,
+    // gradient-bordered surface as the main bar.
+    PanelWindow {
+        id: cornerControls
+        anchors { top: true; right: true }
+        width: 220
+        height: 64
+        color: "transparent"
+        exclusionMode: ExclusionMode.Ignore
+        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+
+        readonly property bool isExpanded: cornerHover.hovered || cornerHitHover.hovered
+        readonly property real expandedX: width - cornerBackground.width - 8
+        readonly property real collapsedX: width - 24
+
+        mask: Region { item: cornerHitArea }
+
+        BackgroundEffect.blurRegion: Region {
+            item: cornerBackground
+            radius: cornerBackground.radius
+        }
+
+        // This hit area stays attached to the screen edge while the pill slides
+        // underneath it, so the pointer can enter at the corner and move onto
+        // either toggle without interrupting the animation.
+        Rectangle {
+            id: cornerHitArea
+            x: cornerBackground.x
+            y: 0
+            width: cornerControls.width - x
+            height: cornerControls.height
+            color: "transparent"
+
+            HoverHandler { id: cornerHitHover }
+        }
+
+        GradientBorder {
+            id: cornerBackground
+            x: cornerControls.isExpanded ? cornerControls.expandedX : cornerControls.collapsedX
+            y: 8
+            width: 112
+            height: 46
+            color: Qt.alpha(root.nord0, root.surfaceOpacity)
+            radius: height / 2
+            gradientEndPosition: 1 / 3
+            gradientTail: "#00fff7ff"
+
+            Behavior on x {
+                SpringAnimation {
+                    spring: root.rubberSpring
+                    damping: root.rubberDamping
+                    mass: 1
+                    epsilon: 0.25
+                }
+            }
+
+            HoverHandler { id: cornerHover }
+
+            Row {
+                anchors.centerIn: parent
+                spacing: 8
+
+                NotifMuteModule {
+                    nord1: root.nord1
+                    nord6: root.nord6
+                    nord11: root.nord11
+                    surfaceOpacity: root.surfaceOpacity
+                    muted: root.notifMuted
+                    onToggled: root.notifMuted = !root.notifMuted
+                }
+
+                FloatingClockToggleModule {
+                    nord1: root.nord1
+                    nord6: root.nord6
+                    nord8: root.nord8
+                    surfaceOpacity: root.surfaceOpacity
+                    clockEnabled: root.floatingClockEnabled
+                    onToggled: root.floatingClockEnabled = !root.floatingClockEnabled
+                }
             }
         }
     }
