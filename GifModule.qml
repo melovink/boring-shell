@@ -44,10 +44,5 @@ Rectangle {
             fillMode: Image.PreserveAspectFit
             playing: rootItem.isActive
         }
-
-        GradientBorder {
-            anchors.fill: parent
-            radius: 12
-        }
     }
 }

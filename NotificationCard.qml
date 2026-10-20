@@ -51,8 +51,44 @@ Item {
     }
 
     readonly property string iconInitial: {
-        var app = notification ? notification.appName : "";
+        var app = card.senderName;
         return app.length > 0 ? app.charAt(0).toUpperCase() : "?";
+    }
+
+    // Chromium based browsers often put their branded desktop id in the
+    // desktop-entry hint while reporting a generic appName such as Chromium.
+    // Resolve that id so browser notifications retain the actual browser name.
+    readonly property string senderName: {
+        if (!notification) return "";
+
+        var appName = notification.appName || "";
+        var entryId = (notification.desktopEntry || "").toLowerCase();
+        var entryKey = entryId.replace(/\.desktop$/, "");
+        var entryName = "";
+
+        if (entryKey.length > 0) {
+            var entries = DesktopEntries.applications.values;
+            for (var i = 0; i < entries.length; i++) {
+                var candidate = entries[i];
+                if (!candidate || !candidate.id) continue;
+                var candidateId = candidate.id.toLowerCase();
+                if (candidateId === entryId || candidateId.replace(/\.desktop$/, "") === entryKey) {
+                    entryName = candidate.name || "";
+                    break;
+                }
+            }
+
+            // Some browser packages do not install a matching desktop entry.
+            if (!entryName && entryKey.indexOf("helium") !== -1) entryName = "Helium";
+        }
+
+        var genericBrowserNames = ["chromium", "chrome", "google chrome"];
+        if (entryName && (!appName || genericBrowserNames.indexOf(appName.toLowerCase()) !== -1)) {
+            return entryName;
+        }
+        // Helium can report Chromium as appName and omit its desktop-entry hint.
+        if (genericBrowserNames.indexOf(appName.toLowerCase()) !== -1) return "Helium";
+        return appName || entryName;
     }
 
     onRevisionChanged: swap.restart()
@@ -67,7 +103,7 @@ Item {
         id: content
         anchors.fill: parent
 
-        // Keep the compact notification layout inside the bar's current 66px
+        // Keep the notification layout vertically centered inside the 76px
         // pill, including room for a two-line body.
         Column {
             id: text
@@ -76,27 +112,18 @@ Item {
             anchors.right: stamp.left
             anchors.rightMargin: 12
             anchors.verticalCenter: parent.verticalCenter
-            anchors.verticalCenterOffset: 13
             spacing: 1
 
             Row {
                 id: labelRow
                 spacing: 7
 
-                Rectangle {
-                    width: 6
-                    height: 6
-                    radius: 3
-                    color: card.urgencyColor
-                    anchors.verticalCenter: parent.verticalCenter
-                }
-
                 // Subdued label rather than the headline: Chromium reports the
                 // browser as the sender for web notifications, so this only ever
                 // identifies the source.
                 Text {
                     id: appLabel
-                    text: card.notification ? card.notification.appName : ""
+                    text: card.senderName
                     color: card.nord9
                     font.family: card.fontPrimary
                     font.pixelSize: 11
@@ -134,7 +161,6 @@ Item {
         Image {
             id: icon
             x: 20
-            y: text.y
             width: 32
             height: 32
             visible: card.iconSource !== ""
@@ -142,6 +168,7 @@ Item {
             smooth: true
             asynchronous: true
             source: card.iconSource
+            anchors.verticalCenter: parent.verticalCenter
         }
 
         // Drawn rather than themed: with no icon theme configured, a named glyph
@@ -149,7 +176,6 @@ Item {
         Rectangle {
             id: iconBadge
             x: 20
-            y: text.y
             width: 32
             height: 32
             radius: 8
@@ -157,6 +183,7 @@ Item {
             color: "transparent"
             border.color: card.nord4
             border.width: 1
+            anchors.verticalCenter: parent.verticalCenter
 
             Text {
                 anchors.centerIn: parent

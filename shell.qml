@@ -26,6 +26,9 @@ ShellRoot {
     // Keep the bar's geometry motion in sync with Spotlight's rubber spring.
     readonly property real rubberSpring: 7.0
     readonly property real rubberDamping: 0.45
+    // Blur can start when geometry is visually settled, without waiting for the
+    // spring's last sub-pixel oscillations to finish.
+    readonly property real blurTolerance: 3.0
 
     property string fontPrimary: "Inter"
     property string fontMono: "JetBrains Mono"
@@ -343,15 +346,23 @@ ShellRoot {
         readonly property int expandedExclusiveZone: edgeMargin + 46
         exclusiveZone: dynamicIsland.notifActive
             ? dynamicIsland.notificationExclusiveZone
-            : (dynamicIsland.isExpanded ? dynamicIsland.expandedExclusiveZone : 0)
+            : ((dynamicIsland.isExpanded || !dynamicIsland.barHideComplete)
+                ? dynamicIsland.expandedExclusiveZone
+                : 0)
         color: "transparent"
         WlrLayershell.layer: WlrLayer.Overlay
 
         BackgroundEffect.blurRegion: Region {
-            // Drop the region before the closing spring moves the bar away;
-            // otherwise the compositor can leave a blurred rectangle behind.
-            item: dynamicIsland.isExpanded || dynamicIsland.notifActive ? background : null
-            radius: background.radius
+            // Keep blur geometry on the settled target instead of following the
+            // spring frame-by-frame. That prevents the compositor from briefly
+            // applying a new blur region to the whole layer surface.
+            x: dynamicIsland.blurReady
+                ? (dynamicIsland.width - dynamicIsland.targetWidth) / 2
+                : 0
+            y: dynamicIsland.blurReady ? dynamicIsland.targetTopMargin : 0
+            width: dynamicIsland.blurReady ? dynamicIsland.targetWidth : 0
+            height: dynamicIsland.blurReady ? dynamicIsland.targetHeight : 0
+            radius: dynamicIsland.blurReady ? dynamicIsland.targetHeight / 2 : 0
         }
 
         mask: Region {
@@ -367,15 +378,42 @@ ShellRoot {
         readonly property bool notifActive: root.activeNotification !== null
         property bool isExpanded: root.barHeld || hoverHandler.hovered || calPopup.visible || volPopup.visible || netPopup.visible || pwrPopup.visible || trayModule.isTrayMenuOpen
         property bool barRevealComplete: false
+        property bool barHideComplete: true
+        readonly property real targetHeight: notifActive ? 76 : 46
         property real targetWidth: notifActive ? 520 : (barRevealComplete ? 780 : 120)
+        readonly property real targetTopMargin: notifActive
+            ? edgeMargin
+            : ((isExpanded || !barHideComplete) ? edgeMargin : hiddenTopMargin)
+        property bool blurReady: false
+
+        function updateBlurReady(): void {
+            var destinationReady = dynamicIsland.notifActive
+                || (dynamicIsland.isExpanded && dynamicIsland.barRevealComplete);
+            if (!destinationReady) return;
+            var targetX = (dynamicIsland.width - dynamicIsland.targetWidth) / 2;
+            if (Math.abs(background.x - targetX) > root.blurTolerance
+                || Math.abs(background.y - dynamicIsland.targetTopMargin) > root.blurTolerance
+                || Math.abs(background.width - dynamicIsland.targetWidth) > root.blurTolerance
+                || Math.abs(background.height - dynamicIsland.targetHeight) > root.blurTolerance) return;
+            dynamicIsland.blurReady = true;
+        }
 
         onIsExpandedChanged: {
+            blurReady = false;
             if (isExpanded) {
+                barHideComplete = false;
+                collapseTimer.stop();
                 revealTimer.restart();
             } else {
                 revealTimer.stop();
                 barRevealComplete = false;
+                collapseTimer.restart();
             }
+        }
+
+        onNotifActiveChanged: {
+            blurReady = false;
+            Qt.callLater(dynamicIsland.updateBlurReady);
         }
 
         Timer {
@@ -387,12 +425,19 @@ ShellRoot {
             }
         }
 
+        Timer {
+            id: collapseTimer
+            interval: dynamicIsland.revealDelay
+            repeat: false
+            onTriggered: {
+                if (!dynamicIsland.isExpanded) dynamicIsland.barHideComplete = true;
+            }
+        }
+
         GradientBorder {
             id: background
             anchors.top: parent.top
-            anchors.topMargin: dynamicIsland.notifActive
-                ? dynamicIsland.edgeMargin
-                : (dynamicIsland.isExpanded ? dynamicIsland.edgeMargin : dynamicIsland.hiddenTopMargin)
+            anchors.topMargin: dynamicIsland.targetTopMargin
 
             Behavior on anchors.topMargin {
                 SpringAnimation {
@@ -404,7 +449,7 @@ ShellRoot {
             }
             anchors.horizontalCenter: parent.horizontalCenter
             width: dynamicIsland.targetWidth
-            height: dynamicIsland.notifActive ? 66 : 46
+            height: dynamicIsland.targetHeight
             color: Qt.alpha(root.nord0, root.surfaceOpacity)
             radius: height / 2
             // Place the lightest point one third up from the bottom edge, then
@@ -429,6 +474,11 @@ ShellRoot {
                     epsilon: 0.25
                 }
             }
+
+            onXChanged: dynamicIsland.updateBlurReady()
+            onYChanged: dynamicIsland.updateBlurReady()
+            onWidthChanged: dynamicIsland.updateBlurReady()
+            onHeightChanged: dynamicIsland.updateBlurReady()
 
             HoverHandler {
                 id: hoverHandler
@@ -476,6 +526,8 @@ ShellRoot {
                     nord1: root.nord1
                     nord4: root.nord4
                     nord8: root.nord8
+                    rubberSpring: root.rubberSpring
+                    rubberDamping: root.rubberDamping
                 }
                 
                 // MPD
@@ -584,7 +636,7 @@ ShellRoot {
                 anchors.verticalCenterOffset: 0
                 text: Qt.formatDateTime(new Date(), "hh:mm")
                 color: root.nord6
-                font.family: root.fontMono
+                font.family: "Outfit"
                 font.pixelSize: 14
                 opacity: dynamicIsland.notifActive ? 0.0 : (dynamicIsland.barRevealComplete ? 0.0 : 1.0)
                 visible: opacity > 0
@@ -921,17 +973,53 @@ ShellRoot {
     PanelWindow {
         id: cavaBar
         anchors { bottom: true; left: true; right: true }
-            height: root.bottomBarMode === "wallpaper" ? 340 : (root.bottomBarMode === "launcher" ? 500 : 60)
+            // Keep the layer surface stable; the mask trims it to the visible
+            // pill so switching modes does not resize and flash the blur surface.
+            height: 500
             color: "transparent"
             exclusionMode: ExclusionMode.Ignore
             WlrLayershell.layer: WlrLayer.Overlay
 
             BackgroundEffect.blurRegion: Region {
-                item: cavaBackground
-                radius: cavaBackground.radius
+                // Use the target geometry rather than the animated background
+                // item, so mode changes do not resubmit blur every frame.
+                x: cavaBar.blurReady ? cavaBackground.x : 0
+                y: cavaBar.blurReady ? cavaBackground.y : 0
+                width: cavaBar.blurReady ? cavaBackground.width : 0
+                height: cavaBar.blurReady ? cavaBackground.height : 0
+                radius: cavaBar.blurReady ? 16 : 0
             }
 
         property bool isHovered: cavaHoverHandler.hovered
+        property bool blurReady: true
+        readonly property real targetWidth: root.bottomBarMode === "wallpaper"
+            ? 800
+            : (root.bottomBarMode === "launcher" ? 540 : 300)
+        readonly property real targetHeight: root.bottomBarMode === "wallpaper"
+            ? 340
+            : (root.bottomBarMode === "launcher" ? 500 : 76)
+        readonly property real targetBottomMargin: (root.bottomBarMode === "cava" && !cavaBar.isHovered)
+            ? -75
+            : -16
+
+        function updateBlurReady(): void {
+            var targetX = (cavaBar.width - cavaBar.targetWidth) / 2;
+            var targetY = cavaBar.height - cavaBar.targetHeight - cavaBar.targetBottomMargin;
+            if (Math.abs(cavaBackground.x - targetX) > root.blurTolerance
+                || Math.abs(cavaBackground.y - targetY) > root.blurTolerance
+                || Math.abs(cavaBackground.width - cavaBar.targetWidth) > root.blurTolerance
+                || Math.abs(cavaBackground.height - cavaBar.targetHeight) > root.blurTolerance) return;
+            cavaBar.blurReady = true;
+        }
+
+        function refreshBlur(): void {
+            cavaBar.blurReady = false;
+            Qt.callLater(cavaBar.updateBlurReady);
+        }
+
+        onTargetWidthChanged: refreshBlur()
+        onTargetHeightChanged: refreshBlur()
+        onTargetBottomMarginChanged: refreshBlur()
         
         mask: Region {
             x: cavaBackground.x
@@ -944,18 +1032,38 @@ ShellRoot {
             id: cavaBackground
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
-            anchors.bottomMargin: (root.bottomBarMode === "cava" && !cavaBar.isHovered) ? -75 : -16
+            anchors.bottomMargin: cavaBar.targetBottomMargin
             
-            width: root.bottomBarMode === "wallpaper" ? 800 : (root.bottomBarMode === "launcher" ? 540 : 300)
-            height: root.bottomBarMode === "wallpaper" ? 340 : (root.bottomBarMode === "launcher" ? 500 : 76)
+            width: cavaBar.targetWidth
+            height: cavaBar.targetHeight
             
             color: Qt.alpha(root.nord0, root.surfaceOpacity)
             radius: 16
             clip: true
 
-            Behavior on anchors.bottomMargin { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
-            Behavior on width { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
-            Behavior on height { NumberAnimation { duration: 300; easing.type: Easing.OutCubic } }
+            Behavior on anchors.bottomMargin {
+                NumberAnimation {
+                    duration: 300
+                    easing.type: Easing.OutCubic
+                }
+            }
+            Behavior on width {
+                NumberAnimation {
+                    duration: 300
+                    easing.type: Easing.OutCubic
+                }
+            }
+            Behavior on height {
+                NumberAnimation {
+                    duration: 300
+                    easing.type: Easing.OutCubic
+                }
+            }
+
+            onXChanged: cavaBar.updateBlurReady()
+            onYChanged: cavaBar.updateBlurReady()
+            onWidthChanged: cavaBar.updateBlurReady()
+            onHeightChanged: cavaBar.updateBlurReady()
 
             HoverHandler {
                 id: cavaHoverHandler
