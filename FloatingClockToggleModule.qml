@@ -22,7 +22,7 @@ Rectangle {
         anchors.centerIn: parent
         width: 16
         height: 16
-        iconColor: clockToggle.clockEnabled ? clockToggle.nord8 : clockToggle.nord6
+        iconColor: clockToggle.clockEnabled ? "#FFFFFF" : "#FF0000"
         path: clockToggle.clockEnabled
             ? "M12 8v4l3 3 M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0"
             : "M12 8v4l2 2 M22 12a10 10 0 0 1-2.93 7.07 M16.24 5.76A9.97 9.97 0 0 0 12 2a10 10 0 1 0 10 10 M3 3l18 18"

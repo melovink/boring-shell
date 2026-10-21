@@ -56,6 +56,10 @@ ShellRoot {
     // top-right controls bar.
     property bool floatingClockEnabled: true
 
+    // Public GitHub account shown by the desktop contribution grid.
+    property string githubUsername: "melovink"
+    property bool githubContributionsEnabled: true
+
     NotificationServer {
         onNotification: n => root.showNotification(n)
     }
@@ -331,6 +335,18 @@ ShellRoot {
 
     // Floating centered clock (stays behind all windows)
     FloatingClock { visible: root.floatingClockEnabled }
+
+    GithubContributions {
+        visible: root.githubContributionsEnabled
+        username: root.githubUsername
+        nord0: root.nord0
+        nord1: root.nord1
+        nord4: root.nord4
+        nord6: root.nord6
+        fontPrimary: root.fontPrimary
+        fontMono: root.fontMono
+        surfaceOpacity: root.surfaceOpacity
+    }
 
     PanelWindow {
         id: dynamicIsland
@@ -690,7 +706,7 @@ ShellRoot {
             id: cornerBackground
             x: cornerControls.isExpanded ? cornerControls.expandedX : cornerControls.collapsedX
             y: 8
-            width: 112
+            width: 160
             height: 46
             color: Qt.alpha(root.nord0, root.surfaceOpacity)
             radius: height / 2
@@ -714,8 +730,6 @@ ShellRoot {
 
                 NotifMuteModule {
                     nord1: root.nord1
-                    nord6: root.nord6
-                    nord11: root.nord11
                     surfaceOpacity: root.surfaceOpacity
                     muted: root.notifMuted
                     onToggled: root.notifMuted = !root.notifMuted
@@ -723,11 +737,16 @@ ShellRoot {
 
                 FloatingClockToggleModule {
                     nord1: root.nord1
-                    nord6: root.nord6
-                    nord8: root.nord8
                     surfaceOpacity: root.surfaceOpacity
                     clockEnabled: root.floatingClockEnabled
                     onToggled: root.floatingClockEnabled = !root.floatingClockEnabled
+                }
+
+                GithubContributionsToggleModule {
+                    nord1: root.nord1
+                    surfaceOpacity: root.surfaceOpacity
+                    contributionsEnabled: root.githubContributionsEnabled
+                    onToggled: root.githubContributionsEnabled = !root.githubContributionsEnabled
                 }
             }
         }
