@@ -2,14 +2,18 @@ import QtQuick
 import Quickshell
 import Quickshell.Wayland
 import Quickshell.Services.SystemTray
+import Quickshell.Widgets
 
-Row {
+Item {
     id: trayRoot
     property color nord0: "#2E3440"
     property color nord1: "#3B4252"
     property color nord6: "#ECEFF4"
     property color nord9: "#81A1C1"
     property real surfaceOpacity: 0.8
+    readonly property int trayItemCount: SystemTray.items.values.length
+    readonly property int iconSize: 24
+    readonly property int iconSpacing: 8
     property var panelWindow
     property bool isTrayMenuOpen: trayPopup.visible
     property var activeTrayData: null
@@ -17,40 +21,55 @@ Row {
     property alias popup: trayPopup
     property var otherPopups: []
 
-    spacing: 8
+    visible: trayItemCount > 0
+    width: trayItemCount > 0 ? trayItemCount * iconSize + (trayItemCount - 1) * iconSpacing : 0
+    height: iconSize
     anchors.verticalCenter: parent.verticalCenter
 
     HoverHandler { id: trayHover }
-    
-    Repeater {
-        model: SystemTray.items
-        Item {
-            id: trayItemDel
-            width: 24; height: 24
-            property var trayData: modelData
-            
-            Image { anchors.centerIn: parent; width: 16; height: 16; source: modelData.icon }
 
-            MouseArea {
-                anchors.fill: parent
-                acceptedButtons: Qt.LeftButton | Qt.RightButton
-                onClicked: (mouse) => {
-                    if (mouse.button === Qt.LeftButton) {
-                        modelData.activate();
-                    } else if (mouse.button === Qt.RightButton) {
-                        if (modelData.hasMenu) {
-                            if (trayRoot.activeTrayData === modelData && trayPopup.visible) {
-                                trayPopup.visible = false;
-                            } else {
-                                trayRoot.activeTrayData = modelData;
-                                trayRoot.activeTrayItem = trayItemDel;
-                                trayPopup.visible = true;
-                                for (var i = 0; i < trayRoot.otherPopups.length; i++) {
-                                    if (trayRoot.otherPopups[i]) trayRoot.otherPopups[i].visible = false;
+    Row {
+        id: trayIcons
+        anchors.fill: parent
+        spacing: trayRoot.iconSpacing
+
+        Repeater {
+            model: SystemTray.items
+            Item {
+                id: trayItemDel
+                width: trayRoot.iconSize
+                height: trayRoot.iconSize
+                property var trayData: modelData
+
+                IconImage {
+                    anchors.centerIn: parent
+                    width: 18
+                    height: 18
+                    source: trayItemDel.trayData.icon
+                    asynchronous: true
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                    onClicked: (mouse) => {
+                        if (mouse.button === Qt.LeftButton) {
+                            trayItemDel.trayData.activate();
+                        } else if (mouse.button === Qt.RightButton) {
+                            if (trayItemDel.trayData.hasMenu) {
+                                if (trayRoot.activeTrayData === trayItemDel.trayData && trayPopup.visible) {
+                                    trayPopup.visible = false;
+                                } else {
+                                    trayRoot.activeTrayData = trayItemDel.trayData;
+                                    trayRoot.activeTrayItem = trayItemDel;
+                                    trayPopup.visible = true;
+                                    for (var i = 0; i < trayRoot.otherPopups.length; i++) {
+                                        if (trayRoot.otherPopups[i]) trayRoot.otherPopups[i].visible = false;
+                                    }
                                 }
+                            } else {
+                                trayItemDel.trayData.display(panelWindow, mouse.x, mouse.y);
                             }
-                        } else {
-                            modelData.display(panelWindow, mouse.x, mouse.y);
                         }
                     }
                 }

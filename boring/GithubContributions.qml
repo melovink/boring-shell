@@ -29,7 +29,8 @@ PanelWindow {
     readonly property int cellPitch: cellSize + cellSpacing
     readonly property int weeks: calendar ? calendar.weeks : 53
     readonly property int graphWidth: weeks * cellPitch - cellSpacing
-    readonly property var levelColors: [Qt.alpha(nord1, 0.9), "#0E4429", "#006D32", "#26A641", "#39D353"]
+    // Nord's darker slate progresses into its blue and turquoise accents.
+    readonly property var levelColors: [Qt.alpha(nord1, 0.9), "#4C566A", "#5E81AC", "#81A1C1", "#88C0D0"]
 
     anchors { top: true; left: true }
     margins.top: github.topMargin
@@ -63,7 +64,7 @@ PanelWindow {
 
     Process {
         id: contributionsProcess
-        command: ["python3", Quickshell.shellPath("github_contributions.py"), github.username,
+        command: ["python3", Quickshell.shellPath("boring/github_contributions.py"), github.username,
             "--cache-dir", Quickshell.cachePath("github-contributions")]
         stdout: StdioCollector {
             onStreamFinished: {

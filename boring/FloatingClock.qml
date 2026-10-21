@@ -5,9 +5,13 @@ import Quickshell.Wayland
 PanelWindow {
     id: floatingClock
 
-    // Span the full screen so we can center content freely,
-    // but the window itself is input-transparent and stays behind everything.
-    anchors { top: true; bottom: true; left: true; right: true }
+    // Keep the layer surface limited to the clock glyph. A transparent full-screen
+    // surface costs a screen-sized buffer even though it only draws this one line.
+    anchors { top: true; left: true }
+    implicitWidth: clockText.implicitWidth
+    implicitHeight: clockText.implicitHeight
+    margins.left: Math.round((screen.width - implicitWidth) / 2)
+    margins.top: Math.round(screen.height / 3 - implicitHeight / 2)
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
 
@@ -27,8 +31,7 @@ PanelWindow {
     Text {
         id: clockText
         anchors.horizontalCenter: parent.horizontalCenter
-        // Upper rule-of-thirds line: vertically centered on 1/3 from top
-        y: Math.round(parent.height / 3 - height / 2)
+        y: 0
         // "h:mm" → 12-hour, no leading zero, no AM/PM
         text: Qt.formatDateTime(new Date(), "h:mm")
         color: "#ECEFF4"        // nord6

@@ -27,8 +27,7 @@ Item {
         }
         Keys.onEscapePressed: {
             text = "";
-            root.bottomBarMode = "cava";
-            cavaBar.WlrLayershell.keyboardFocus = WlrKeyboardFocus.None;
+            root.wallpaperPickerVisible = false;
         }
     }
 
@@ -55,8 +54,7 @@ Item {
         onRunningChanged: {
             if (!running) {
                 wallpaperSearch.text = "";
-                root.bottomBarMode = "cava";
-                cavaBar.WlrLayershell.keyboardFocus = WlrKeyboardFocus.None;
+                root.wallpaperPickerVisible = false;
             }
         }
     }
