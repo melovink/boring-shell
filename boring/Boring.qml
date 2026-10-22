@@ -34,7 +34,7 @@ Item {
     property string fontPrimary: "Inter"
     property string fontMono: "JetBrains Mono"
 
-    property bool wallpaperPickerVisible: false
+    property alias wallpaperPickerVisible: wallpaperPopup.visible
 
     // ---- Notifications ----
     // boring owns the org.freedesktop.Notifications name, so this process is the
@@ -86,6 +86,7 @@ Item {
         netPopup.visible = false;
         pwrPopup.visible = false;
         mpdPopup.visible = false;
+        wallpaperPopup.visible = false;
         if (trayModule && trayModule.popup) trayModule.popup.visible = false;
 
         root.releaseNotification();
@@ -468,6 +469,7 @@ Item {
                     netPopup.visible = false;
                     pwrPopup.visible = false;
                     mpdPopup.visible = false;
+                    wallpaperPopup.visible = false;
                     if (trayModule && trayModule.popup) trayModule.popup.visible = false;
                 }
             }
@@ -514,7 +516,7 @@ Item {
                 : 0)
         color: "transparent"
         WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.keyboardFocus: netPopup.selectedWifi !== null
+        WlrLayershell.keyboardFocus: wallpaperPopup.visible || netPopup.selectedWifi !== null
             ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
         // Keep blur active as the attached region follows popup animations.
@@ -607,7 +609,7 @@ Item {
             color: Qt.alpha(root.nord0, root.surfaceOpacity)
             outlineColor: Qt.alpha(root.nord4, 0.12)
             radius: height / 2
-            popups: [calPopup, volPopup, netPopup, pwrPopup, mpdPopup, trayModule.popup]
+            popups: [calPopup, volPopup, netPopup, pwrPopup, mpdPopup, wallpaperPopup, trayModule.popup]
             barHovered: hoverHandler.hovered
 
             Behavior on width {
@@ -693,7 +695,7 @@ Item {
                     mpdText: root.mpdText
                     playing: root.mpdPlaying
                     mediaPopup: mpdPopup
-                    otherPopups: [calPopup, volPopup, netPopup, pwrPopup, trayModule.popup]
+                    otherPopups: [calPopup, volPopup, netPopup, pwrPopup, wallpaperPopup, trayModule.popup]
                 }
 
                 // Clock
@@ -707,7 +709,7 @@ Item {
                     fontPrimary: root.fontPrimary
                     fontMono: root.fontMono
                     calPopup: calPopup
-                    otherPopups: [volPopup, netPopup, pwrPopup, mpdPopup, trayModule.popup]
+                    otherPopups: [volPopup, netPopup, pwrPopup, mpdPopup, wallpaperPopup, trayModule.popup]
                 }
 
                 // Volume
@@ -720,7 +722,7 @@ Item {
                     volumeText: root.volumeText
                     volumeLevel: root.volumeLevel
                     volPopup: volPopup
-                    otherPopups: [calPopup, netPopup, pwrPopup, mpdPopup, trayModule.popup]
+                    otherPopups: [calPopup, netPopup, pwrPopup, mpdPopup, wallpaperPopup, trayModule.popup]
                 }
                 
                 // WiFi
@@ -734,7 +736,7 @@ Item {
                     wifiText: root.wifiText
                     networkType: root.networkType
                     netPopup: netPopup
-                    otherPopups: [calPopup, volPopup, pwrPopup, mpdPopup, trayModule.popup]
+                    otherPopups: [calPopup, volPopup, pwrPopup, mpdPopup, wallpaperPopup, trayModule.popup]
                     scanWifiProc: scanWifiProc
                 }
                 
@@ -748,9 +750,9 @@ Item {
                     batteryText: root.batteryText
                     batteryStatus: root.batteryStatus
                     pwrPopup: pwrPopup
-                    otherPopups: [calPopup, volPopup, netPopup, mpdPopup, trayModule.popup]
+                    otherPopups: [calPopup, volPopup, netPopup, mpdPopup, wallpaperPopup, trayModule.popup]
                 }
-                
+
                 // App Tray
                 TrayModule {
                     id: trayModule
@@ -761,7 +763,7 @@ Item {
                     nord9: root.nord9
                     surfaceOpacity: root.surfaceOpacity
                     panelWindow: dynamicIsland
-                    otherPopups: [calPopup, volPopup, netPopup, pwrPopup, mpdPopup]
+                    otherPopups: [calPopup, volPopup, netPopup, pwrPopup, mpdPopup, wallpaperPopup]
                 }
 
             }
@@ -1683,41 +1685,38 @@ Item {
         }
     }
 
-    // Wallpaper picker, opened on demand from the wallpaper keybind.
-    PanelWindow {
-        id: wallpaperBar
-        visible: root.wallpaperPickerVisible
-        anchors { bottom: true; left: true; right: true }
-        height: 500
-        color: "transparent"
-        exclusionMode: ExclusionMode.Ignore
-        WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.keyboardFocus: root.wallpaperPickerVisible
-            ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+    // The wallpaper keybind opens a picker attached to the center of the top bar.
+    AnimatedPopup {
+        id: wallpaperPopup
+        popupHost: background
+        anchorItem: background
+        anchorHovered: background.barHovered
+        hold: true
+        panelWidth: Math.min(640, Math.max(padding * 2,
+            background.width - (background.radius + 20) * 2))
+        panelHeight: 252
 
-        BackgroundEffect.blurRegion: Region {
-            item: wallpaperBackground
-            radius: wallpaperBackground.radius
-        }
-
-        mask: Region {
-            item: wallpaperBackground
-            radius: wallpaperBackground.radius
-        }
-
-        GradientBorder {
-            id: wallpaperBackground
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: -16
-            width: 800
-            height: 340
-            color: Qt.alpha(root.nord0, root.surfaceOpacity)
-            radius: 16
-            clip: true
-
-            WallpaperModule {
+        onVisibleChanged: {
+            if (visible) {
+                var otherPopups = [calPopup, volPopup, netPopup, pwrPopup, mpdPopup, trayModule.popup];
+                for (var i = 0; i < otherPopups.length; i++) otherPopups[i].visible = false;
+                Qt.callLater(function() {
+                    if (wallpaperPopup.visible) wallpaperPicker.focusSearch();
+                });
+            } else {
+                wallpaperPicker.resetSearch();
             }
+        }
+
+        WallpaperModule {
+            id: wallpaperPicker
+            nord1: root.nord1
+            nord4: root.nord4
+            nord6: root.nord6
+            nord8: root.nord8
+            surfaceOpacity: root.surfaceOpacity
+            fontPrimary: root.fontPrimary
+            onCloseRequested: wallpaperPopup.visible = false
         }
     }
 }
