@@ -85,6 +85,7 @@ Item {
         volPopup.visible = false;
         netPopup.visible = false;
         pwrPopup.visible = false;
+        mpdPopup.visible = false;
         if (trayModule && trayModule.popup) trayModule.popup.visible = false;
 
         root.releaseNotification();
@@ -170,35 +171,162 @@ Item {
     property string pendingTlpProfile: ""
     property string mpdRawText: "Stopped"
     property bool mpdPlaying: false
+    property string mpdTitle: "No track playing"
+    property string mpdAlbumArtist: ""
+    property string mpdFile: ""
+    property real mpdElapsed: 0
+    property real mpdDuration: 0
+    property int mpdSeekRevision: 0
+    property double mpdStatusAt: Date.now()
+    property double mpdProgressNow: Date.now()
+    readonly property string mpdArtPath: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp")
+        + "/quickshell-mpd-albumart-" + Quickshell.processId
+    property bool mpdArtAvailable: false
+    property int mpdArtRevision: 0
+    readonly property real mpdDisplayedElapsed: {
+        var now = mpdProgressNow;
+        if (!mpdPlaying) return mpdElapsed;
+        return Math.min(mpdDuration, mpdElapsed + Math.max(0, now - mpdStatusAt) / 1000);
+    }
     property string mpdText: {
         if (mpdRawText.length <= 30) return mpdRawText;
         return mpdRawText.substring(0, 30) + "...";
     }
+
+    function mpdTimeToSeconds(value: string): number {
+        var parts = value.split(":");
+        if (parts.length < 2 || parts.length > 3) return 0;
+        var total = 0;
+        for (var i = 0; i < parts.length; i++) {
+            var part = parseInt(parts[i]);
+            if (isNaN(part)) return 0;
+            total = total * 60 + part;
+        }
+        return total;
+    }
+
+    function formatMpdTime(value: real): string {
+        var total = Math.max(0, Math.floor(value));
+        var seconds = total % 60;
+        var minutes = Math.floor(total / 60) % 60;
+        var hours = Math.floor(total / 3600);
+        var paddedSeconds = seconds < 10 ? "0" + seconds : "" + seconds;
+        if (hours > 0) {
+            var paddedMinutes = minutes < 10 ? "0" + minutes : "" + minutes;
+            return hours + ":" + paddedMinutes + ":" + paddedSeconds;
+        }
+        return Math.floor(total / 60) + ":" + paddedSeconds;
+    }
+
+    function requestMpdAlbumArt(uri: string): void {
+        mpdArtAvailable = false;
+        mpdAlbumArtProc.requestedUri = uri;
+        if (uri !== "") mpdAlbumArtProc.startRequested();
+    }
     
     // Processes for Polling Data
-    // `mpc status` prints "<song>\n[playing|paused] ...\nvolume: ..." while a
-    // song is loaded and only the "volume:" line when stopped. Untagged files
-    // (e.g. plain .wav) have no artist/title, so the format falls back to the
-    // file path, marked with "file:" so it can be trimmed to a bare name.
     Process {
         id: mpcProc
-        command: ["mpc", "status", "-f", "[[%artist% - ]%title%]|file:%file%"]
+        property int seekRevision: 0
+        command: ["mpc", "status", "-f", "%title%\t%album%\t%artist%\t%file%"]
+        onStarted: seekRevision = root.mpdSeekRevision
         stdout: StdioCollector {
             onStreamFinished: {
-                var lines = this.text.trim().split("\n");
+                var lines = this.text.replace(/\r/g, "").split("\n");
                 var state = lines.length >= 2 ? lines[1].match(/^\[(\w+)\]/) : null;
                 if (state) {
-                    var song = lines[0].trim();
-                    if (song.startsWith("file:"))
-                        song = song.substring(5).split("/").pop().replace(/\.[^.]+$/, "");
-                    root.mpdRawText = song !== "" ? song : "Unknown";
+                    var fields = lines[0].split("\t");
+                    var title = fields[0] ? fields[0].trim() : "";
+                    var album = fields[1] ? fields[1].trim() : "";
+                    var artist = fields[2] ? fields[2].trim() : "";
+                    var file = fields[3] ? fields[3].trim() : "";
+                    var fileName = file.split("/").pop().replace(/\.[^.]+$/, "");
+                    if (title === "") title = fileName || "Unknown title";
+                    root.mpdTitle = title;
+                    root.mpdAlbumArtist = (album || "Unknown album") + " - " + (artist || "Unknown artist");
+                    root.mpdRawText = artist ? artist + " - " + title : title;
                     root.mpdPlaying = state[1] === "playing";
+                    var progress = lines[1].match(/(\d+(?::\d+){1,2})\/(\d+(?::\d+){1,2})/);
+                    if (mpcProc.seekRevision === root.mpdSeekRevision && !mpdSeekProc.running) {
+                        root.mpdElapsed = progress ? root.mpdTimeToSeconds(progress[1]) : 0;
+                        root.mpdDuration = progress ? root.mpdTimeToSeconds(progress[2]) : 0;
+                        root.mpdStatusAt = Date.now();
+                        root.mpdProgressNow = root.mpdStatusAt;
+                    }
+                    if (file !== root.mpdFile) {
+                        root.mpdFile = file;
+                        root.requestMpdAlbumArt(file);
+                    }
                 } else {
                     root.mpdRawText = "Stopped";
+                    root.mpdTitle = "No track playing";
+                    root.mpdAlbumArtist = "";
                     root.mpdPlaying = false;
+                    root.mpdElapsed = 0;
+                    root.mpdDuration = 0;
+                    root.mpdStatusAt = Date.now();
+                    root.mpdProgressNow = root.mpdStatusAt;
+                    if (root.mpdFile !== "") {
+                        root.mpdFile = "";
+                        root.requestMpdAlbumArt("");
+                    }
                 }
             }
         }
+    }
+
+    Process {
+        id: mpdAlbumArtProc
+        property string activeUri: ""
+        property string requestedUri: ""
+        function startRequested(): void {
+            if (running || requestedUri === "") return;
+            activeUri = requestedUri;
+            requestedUri = "";
+            running = true;
+        }
+        command: [
+            "sh", "-c",
+            "mpc albumart \"$1\" > \"$2\" 2>/dev/null || mpc readpicture \"$1\" > \"$2\" 2>/dev/null",
+            "mpd-albumart", activeUri, root.mpdArtPath
+        ]
+        onExited: (exitCode, exitStatus) => {
+            if (activeUri === root.mpdFile) {
+                if (exitCode === 0) {
+                    root.mpdArtRevision++;
+                    root.mpdArtAvailable = true;
+                } else {
+                    root.mpdArtAvailable = false;
+                }
+            }
+            Qt.callLater(function() { mpdAlbumArtProc.startRequested(); });
+        }
+    }
+
+    Process {
+        id: mpdPreviousProc
+        command: ["mpc", "prev"]
+        onRunningChanged: if (!running) mpcProc.running = true
+    }
+
+    Process {
+        id: mpdNextProc
+        command: ["mpc", "next"]
+        onRunningChanged: if (!running) mpcProc.running = true
+    }
+
+    Process {
+        id: mpdSeekProc
+        property int percent: 0
+        command: ["mpc", "seek", percent + "%"]
+        onRunningChanged: if (!running) mpcProc.running = true
+    }
+
+    Timer {
+        interval: 250
+        running: root.mpdPlaying && mpdPopup.visible
+        repeat: true
+        onTriggered: root.mpdProgressNow = Date.now()
     }
 
     Process {
@@ -221,6 +349,21 @@ Item {
         }
     }
 
+    PwObjectTracker {
+        objects: [Pipewire.defaultAudioSink, Pipewire.defaultAudioSource]
+    }
+
+    Connections {
+        target: Pipewire.defaultAudioSink ? Pipewire.defaultAudioSink.audio : null
+        function onVolumesChanged(): void { root.syncVolumeFromPipewire(); }
+        function onMutedChanged(): void { root.syncVolumeFromPipewire(); }
+    }
+
+    Connections {
+        target: Pipewire
+        function onDefaultAudioSinkChanged(): void { root.syncVolumeFromPipewire(); }
+    }
+
     // Slider writes are serialised through one wpctl process. While it runs, only
     // the newest requested level is remembered, so a fast drag never queues a
     // backlog and never drops the final position.
@@ -241,6 +384,14 @@ Item {
         if (root.volumeText !== "Muted") root.volumeText = Math.round(v * 100) + "%";
         setVolProc.pendingVol = v;
         if (!setVolProc.running) root.flushVolume();
+    }
+
+    function syncVolumeFromPipewire(): void {
+        if (setVolProc.running || setVolProc.pendingVol >= 0) return;
+        var sink = Pipewire.defaultAudioSink;
+        if (!sink || !sink.audio) return;
+        root.volumeLevel = sink.audio.volume;
+        root.volumeText = sink.audio.muted ? "Muted" : Math.round(root.volumeLevel * 100) + "%";
     }
 
     function flushVolume(): void {
@@ -280,9 +431,9 @@ Item {
                 var tlpLine = lines.length > 0 && lines[lines.length - 1].startsWith("tlp") ? lines.pop() : "tlp";
                 var profiles = { "0": "performance", "1": "balanced", "2": "power-saver" };
                 root.tlpProfile = profiles[tlpLine.substring(3).trim()] || "";
-                if (root.pendingTlpProfile !== ""
-                    && (root.pendingTlpProfile === root.tlpProfile || !tlpSetProc.running)) {
+                if (root.pendingTlpProfile !== "" && root.pendingTlpProfile === root.tlpProfile) {
                     root.pendingTlpProfile = "";
+                    tlpPendingTimer.stop();
                 }
                 if (lines.length >= 2) {
                     root.batteryText = lines[0] + "%";
@@ -316,6 +467,7 @@ Item {
                     volPopup.visible = false;
                     netPopup.visible = false;
                     pwrPopup.visible = false;
+                    mpdPopup.visible = false;
                     if (trayModule && trayModule.popup) trayModule.popup.visible = false;
                 }
             }
@@ -362,6 +514,8 @@ Item {
                 : 0)
         color: "transparent"
         WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.keyboardFocus: netPopup.selectedWifi !== null
+            ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
         // Keep blur active as the attached region follows popup animations.
         BackgroundEffect.blurRegion: AttachedRegion {
@@ -453,7 +607,7 @@ Item {
             color: Qt.alpha(root.nord0, root.surfaceOpacity)
             outlineColor: Qt.alpha(root.nord4, 0.12)
             radius: height / 2
-            popups: [calPopup, volPopup, netPopup, pwrPopup, trayModule.popup]
+            popups: [calPopup, volPopup, netPopup, pwrPopup, mpdPopup, trayModule.popup]
             barHovered: hoverHandler.hovered
 
             Behavior on width {
@@ -531,13 +685,15 @@ Item {
                 
                 // MPD
                 MpdModule {
+                    id: mpdRect
                     nord1: root.nord1
                     nord6: root.nord6
                     surfaceOpacity: root.surfaceOpacity
                     fontPrimary: root.fontPrimary
                     mpdText: root.mpdText
                     playing: root.mpdPlaying
-                    toggleProcess: mpdToggleProc
+                    mediaPopup: mpdPopup
+                    otherPopups: [calPopup, volPopup, netPopup, pwrPopup, trayModule.popup]
                 }
 
                 // Clock
@@ -551,7 +707,7 @@ Item {
                     fontPrimary: root.fontPrimary
                     fontMono: root.fontMono
                     calPopup: calPopup
-                    otherPopups: [volPopup, netPopup, pwrPopup, trayModule.popup]
+                    otherPopups: [volPopup, netPopup, pwrPopup, mpdPopup, trayModule.popup]
                 }
 
                 // Volume
@@ -564,7 +720,7 @@ Item {
                     volumeText: root.volumeText
                     volumeLevel: root.volumeLevel
                     volPopup: volPopup
-                    otherPopups: [calPopup, netPopup, pwrPopup, trayModule.popup]
+                    otherPopups: [calPopup, netPopup, pwrPopup, mpdPopup, trayModule.popup]
                 }
                 
                 // WiFi
@@ -578,7 +734,7 @@ Item {
                     wifiText: root.wifiText
                     networkType: root.networkType
                     netPopup: netPopup
-                    otherPopups: [calPopup, volPopup, pwrPopup, trayModule.popup]
+                    otherPopups: [calPopup, volPopup, pwrPopup, mpdPopup, trayModule.popup]
                     scanWifiProc: scanWifiProc
                 }
                 
@@ -592,7 +748,7 @@ Item {
                     batteryText: root.batteryText
                     batteryStatus: root.batteryStatus
                     pwrPopup: pwrPopup
-                    otherPopups: [calPopup, volPopup, netPopup, trayModule.popup]
+                    otherPopups: [calPopup, volPopup, netPopup, mpdPopup, trayModule.popup]
                 }
                 
                 // App Tray
@@ -605,7 +761,7 @@ Item {
                     nord9: root.nord9
                     surfaceOpacity: root.surfaceOpacity
                     panelWindow: dynamicIsland
-                    otherPopups: [calPopup, volPopup, netPopup, pwrPopup]
+                    otherPopups: [calPopup, volPopup, netPopup, pwrPopup, mpdPopup]
                 }
 
             }
@@ -794,6 +950,216 @@ Item {
         }
     }
 
+    // MPD Popup
+    AnimatedPopup {
+        id: mpdPopup
+        popupHost: background
+        anchorItem: mpdRect
+        anchorHovered: mpdRect.hovered
+        hold: mpdProgress.pressed
+        panelWidth: 400
+        panelHeight: mpdControls.height + padding * 2
+        onVisibleChanged: if (visible) mpcProc.running = true
+
+        Row {
+            id: mpdControls
+            width: parent.width
+            height: 132
+            anchors.centerIn: parent
+            spacing: 16
+
+            Rectangle {
+                id: mpdCover
+                width: 116; height: 116; radius: 18
+                anchors.verticalCenter: parent.verticalCenter
+                color: Qt.alpha(root.nord1, root.surfaceOpacity)
+                clip: true
+
+                SvgIcon {
+                    anchors.centerIn: parent
+                    width: 38; height: 38
+                    visible: mpdCoverImage.status !== Image.Ready
+                    path: "M9 18V5l12-2v13 M9 18a3 3 0 1 1-6 0a3 3 0 0 1 6 0 M21 16a3 3 0 1 1-6 0a3 3 0 0 1 6 0"
+                    iconColor: root.nord8
+                }
+                Image {
+                    id: mpdCoverImage
+                    anchors.fill: parent
+                    source: root.mpdArtAvailable
+                        ? "file://" + root.mpdArtPath + "?rev=" + root.mpdArtRevision
+                        : ""
+                    visible: status === Image.Ready
+                    asynchronous: true
+                    cache: false
+                    fillMode: Image.PreserveAspectCrop
+                    sourceSize.width: 256; sourceSize.height: 256
+                    onStatusChanged: if (status === Image.Error) root.mpdArtAvailable = false
+                }
+            }
+
+            Column {
+                width: mpdControls.width - mpdCover.width - mpdControls.spacing
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 6
+
+                Text {
+                    width: parent.width
+                    text: root.mpdTitle
+                    textFormat: Text.PlainText
+                    color: root.nord6
+                    font.family: root.fontPrimary; font.pixelSize: 15; font.bold: true
+                    elide: Text.ElideRight
+                }
+                Text {
+                    width: parent.width
+                    text: root.mpdAlbumArtist
+                    textFormat: Text.PlainText
+                    color: root.nord4
+                    font.family: root.fontPrimary; font.pixelSize: 11
+                    elide: Text.ElideRight
+                }
+
+                Row {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    height: 38
+                    spacing: 12
+
+                    Rectangle {
+                        width: 32; height: 32; radius: 16
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: previousMouse.containsMouse
+                            ? Qt.alpha(root.nord8, 0.2) : "transparent"
+                        Accessible.name: "Previous track"
+                        SvgIcon {
+                            anchors.centerIn: parent
+                            width: 18; height: 18
+                            path: "M6 5v14 M18 5 8 12l10 7z"
+                            iconColor: root.nord6
+                        }
+                        MouseArea {
+                            id: previousMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: mpdPreviousProc.running = true
+                        }
+                    }
+                    Rectangle {
+                        width: 38; height: 38; radius: 19
+                        color: Qt.alpha(root.nord8, 0.9)
+                        anchors.verticalCenter: parent.verticalCenter
+                        Accessible.name: root.mpdPlaying ? "Pause" : "Play"
+                        SvgIcon {
+                            anchors.centerIn: parent
+                            width: 19; height: 19
+                            path: root.mpdPlaying
+                                ? "M7 5h4v14H7z M15 5h4v14h-4z"
+                                : "M8 5v14l11-7z"
+                            iconColor: root.nord0
+                            fill: true
+                        }
+                        MouseArea {
+                            id: togglePlaybackMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: mpdToggleProc.running = true
+                        }
+                    }
+                    Rectangle {
+                        width: 32; height: 32; radius: 16
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: nextMouse.containsMouse
+                            ? Qt.alpha(root.nord8, 0.2) : "transparent"
+                        Accessible.name: "Next track"
+                        SvgIcon {
+                            anchors.centerIn: parent
+                            width: 18; height: 18
+                            path: "M18 5v14 M6 5l10 7-10 7z"
+                            iconColor: root.nord6
+                        }
+                        MouseArea {
+                            id: nextMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: mpdNextProc.running = true
+                        }
+                    }
+                }
+
+                RowLayout {
+                    width: parent.width
+                    spacing: 6
+
+                    Text {
+                        Layout.preferredWidth: 30
+                        text: root.formatMpdTime(root.mpdDisplayedElapsed)
+                        color: root.nord4
+                        font.family: root.fontMono; font.pixelSize: 9
+                    }
+                    Slider {
+                        id: mpdProgress
+                        Layout.fillWidth: true
+                        implicitHeight: 16
+                        padding: 0
+                        from: 0; to: 1
+                        enabled: root.mpdDuration > 0 && !mpdSeekProc.running
+                        property bool userMoved: false
+                        property real seekValue: 0
+                        Binding on value {
+                            when: !mpdProgress.pressed
+                            value: root.mpdDuration > 0
+                                ? root.mpdDisplayedElapsed / root.mpdDuration : 0
+                            restoreMode: Binding.RestoreNone
+                        }
+                        onMoved: {
+                            seekValue = value;
+                            userMoved = true;
+                        }
+                        onPressedChanged: {
+                            if (!pressed && userMoved) {
+                                userMoved = false;
+                                var target = Math.round(seekValue * 100);
+                                root.mpdSeekRevision++;
+                                root.mpdElapsed = root.mpdDuration * target / 100;
+                                root.mpdStatusAt = Date.now();
+                                root.mpdProgressNow = root.mpdStatusAt;
+                                mpdSeekProc.percent = target;
+                                mpdSeekProc.running = true;
+                            }
+                        }
+                        background: Item {
+                            x: mpdProgress.leftPadding
+                            y: mpdProgress.topPadding + (mpdProgress.availableHeight - height) / 2
+                            width: mpdProgress.availableWidth
+                            height: 5
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: 3
+                                color: Qt.alpha(root.nord1, root.surfaceOpacity)
+                            }
+                            Rectangle {
+                                width: parent.width * mpdProgress.visualPosition
+                                height: parent.height
+                                radius: 3
+                                color: root.nord8
+                            }
+                        }
+                        handle: Item { width: 0; height: 0 }
+                    }
+                    Text {
+                        Layout.preferredWidth: 30
+                        text: root.formatMpdTime(root.mpdDuration)
+                        color: root.nord4
+                        font.family: root.fontMono; font.pixelSize: 9
+                        horizontalAlignment: Text.AlignRight
+                    }
+                }
+            }
+        }
+    }
+
     // Volume Popup
     AnimatedPopup {
         id: volPopup
@@ -810,6 +1176,11 @@ Item {
             id: toggleMuteProc
             command: ["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"]
             onRunningChanged: if(!running) volProc.running = true
+        }
+
+        Process {
+            id: toggleMicMuteProc
+            command: ["wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "toggle"]
         }
 
         Column {
@@ -949,35 +1320,69 @@ Item {
                     }
                 }
             }
+
+            RowLayout {
+                width: parent.width
+                Text {
+                    Layout.fillWidth: true
+                    text: "Mute microphone"
+                    color: root.nord6; font.family: root.fontPrimary; font.pixelSize: 13
+                }
+                Switch {
+                    id: micMuteSwitch
+                    padding: 0
+                    implicitWidth: 44; implicitHeight: 24
+                    enabled: Pipewire.defaultAudioSource !== null && !toggleMicMuteProc.running
+                    checked: Pipewire.defaultAudioSource && Pipewire.defaultAudioSource.audio
+                        ? Pipewire.defaultAudioSource.audio.muted : false
+                    Accessible.name: "Mute microphone"
+                    onToggled: toggleMicMuteProc.running = true
+                    indicator: Rectangle {
+                        width: 44; height: 24; radius: 12
+                        color: micMuteSwitch.checked ? root.nord8 : root.nord1
+                        Behavior on color { ColorAnimation { duration: 200 } }
+
+                        Rectangle {
+                            x: micMuteSwitch.checked ? 24 : 4; y: 4
+                            width: 16; height: 16; radius: 8
+                            color: micMuteSwitch.checked ? root.nord0 : root.nord4
+                            Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                            Behavior on color { ColorAnimation { duration: 200 } }
+                        }
+                    }
+                }
+            }
+
         }
     }
 
     // Network Popup
-    // Each entry is { ssid, active }. The connected network is listed first.
+    // Each entry is { ssid, active, secured, signal }. The connected network is listed first.
     property var wifiList: []
     Process {
         id: scanWifiProc
-        command: ["nmcli", "-t", "-f", "IN-USE,SIGNAL,SSID", "dev", "wifi"]
+        command: ["nmcli", "-t", "-f", "IN-USE,SIGNAL,SECURITY,SSID", "dev", "wifi"]
         stdout: StdioCollector {
             onStreamFinished: {
                 var lines = this.text.trim().split("\n");
                 var byName = {};
                 for (var i = 0; i < lines.length; i++) {
-                    // Terse rows look like "*:72:name". IN-USE and SIGNAL never
-                    // contain ':', and nmcli escapes any ':' inside the SSID.
-                    var m = lines[i].match(/^(.?):(\d*):(.*)$/);
+                    // IN-USE, SIGNAL, and SECURITY cannot contain ':'. nmcli
+                    // escapes colons in the SSID, which remains the final field.
+                    var m = lines[i].match(/^([^:]*):(\d*):([^:]*):(.*)$/);
                     if (!m) continue;
-                    var ssid = m[3].replace(/\\:/g, ":").replace(/\\\\/g, "\\");
+                    var ssid = m[4].replace(/\\:/g, ":").replace(/\\\\/g, "\\");
                     if (ssid === "") continue;
                     var signal = parseInt(m[2]) || 0;
-                    var entry = byName[ssid] || { ssid: ssid, active: false, signal: 0 };
+                    var entry = byName[ssid] || { ssid: ssid, active: false, secured: false, signal: 0 };
                     entry.active = entry.active || m[1] === "*";
                     entry.signal = Math.max(entry.signal, signal);
+                    entry.secured = entry.secured || m[3].trim() !== "";
                     byName[ssid] = entry;
                 }
                 var list = Object.keys(byName).map(k => byName[k]);
                 list.sort((a, b) => (b.active - a.active) || (b.signal - a.signal));
-                if (list.length > 0) root.wifiList = list.slice(0, 8);
+                root.wifiList = list.slice(0, 8);
             }
         }
     }
@@ -985,24 +1390,69 @@ Item {
     Process {
         id: connectWifiProc
         property string targetSsid: ""
-        command: ["nmcli", "dev", "wifi", "connect", targetSsid]
+        property string targetPassword: ""
+        property bool passwordAttempt: false
+        command: passwordAttempt
+            ? ["nmcli", "dev", "wifi", "connect", targetSsid, "password", targetPassword]
+            : ["nmcli", "dev", "wifi", "connect", targetSsid]
         onRunningChanged: if (!running) { wifiProc.running = true; scanWifiProc.running = true; }
+        onExited: (exitCode, exitStatus) => {
+            if (passwordAttempt) {
+                if (exitCode === 0) {
+                    netPopup.clearPasswordEntry();
+                } else {
+                    netPopup.passwordError = "Connection failed. Check the password and try again.";
+                }
+            }
+            targetPassword = "";
+            passwordAttempt = false;
+        }
     }
 
     AnimatedPopup {
         id: netPopup
+        property var selectedWifi: null
+        property string passwordError: ""
+        property bool returningToWifiList: false
+        onVisibleChanged: if (!visible) clearPasswordEntry()
+        function clearPasswordEntry(): void {
+            selectedWifi = null;
+            passwordError = "";
+            returningToWifiList = false;
+            wifiPasswordField.text = "";
+        }
+        function returnToNetworkList(): void {
+            clearPasswordEntry();
+            returningToWifiList = true;
+        }
+        function connectSelectedWifi(): void {
+            if (!selectedWifi || wifiPasswordField.text.length === 0 || connectWifiProc.running) return;
+            connectWifiProc.targetSsid = selectedWifi.ssid;
+            connectWifiProc.targetPassword = wifiPasswordField.text;
+            connectWifiProc.passwordAttempt = true;
+            passwordError = "";
+            wifiPasswordField.text = "";
+            connectWifiProc.running = true;
+        }
         popupHost: background
         anchorItem: wifiRect
         anchorHovered: wifiRect.hovered
+        hold: selectedWifi !== null || returningToWifiList
         panelWidth: 320
-        panelHeight: Math.min(392, Math.max(44, networkList.contentHeight)) + padding * 2
+        panelHeight: selectedWifi
+            ? wifiPasswordControls.implicitHeight + padding * 2
+            : Math.min(392, Math.max(44, networkList.contentHeight)) + padding * 2
 
         ListView {
             id: networkList
             anchors.fill: parent
+            visible: netPopup.selectedWifi === null
             model: root.wifiList
             spacing: 8
             clip: true
+            HoverHandler {
+                onHoveredChanged: if (hovered) netPopup.returningToWifiList = false
+            }
             delegate: Rectangle {
                 width: ListView.view.width; height: 44; radius: 16
                 color: modelData.active
@@ -1010,24 +1460,126 @@ Item {
                     : Qt.alpha(root.nord1, root.surfaceOpacity)
                 Text {
                     anchors.verticalCenter: parent.verticalCenter; anchors.left: parent.left; anchors.leftMargin: 12
-                    width: parent.width - 24 - (connectedLabel.visible ? connectedLabel.implicitWidth + 8 : 0)
+                    width: parent.width - 24 - (stateLabel.visible ? stateLabel.implicitWidth + 8 : 0)
                     text: modelData.ssid; elide: Text.ElideRight
                     color: modelData.active ? root.nord0 : root.nord6
                     font.family: root.fontPrimary; font.pixelSize: 13; font.bold: modelData.active
                 }
                 Text {
-                    id: connectedLabel
-                    visible: modelData.active
+                    id: stateLabel
+                    visible: modelData.active || modelData.secured
                     anchors.verticalCenter: parent.verticalCenter; anchors.right: parent.right; anchors.rightMargin: 12
-                    text: "Connected"; color: root.nord0
+                    text: modelData.active ? "Connected" : "Secured"
+                    color: modelData.active ? root.nord0 : root.nord4
                     font.family: root.fontPrimary; font.pixelSize: 10
                 }
                 MouseArea {
                     anchors.fill: parent
                     // Re-running "connect" on the active network only drops it briefly.
-                    enabled: !modelData.active
-                    cursorShape: Qt.PointingHandCursor
-                    onClicked: { connectWifiProc.targetSsid = modelData.ssid; connectWifiProc.running = true; }
+                    enabled: !modelData.active && !connectWifiProc.running
+                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                    onClicked: {
+                        netPopup.returningToWifiList = false;
+                        if (modelData.secured) {
+                            netPopup.selectedWifi = modelData;
+                            netPopup.passwordError = "";
+                            wifiPasswordField.text = "";
+                            Qt.callLater(function() { wifiPasswordField.forceActiveFocus(); });
+                        } else {
+                            connectWifiProc.targetSsid = modelData.ssid;
+                            connectWifiProc.targetPassword = "";
+                            connectWifiProc.passwordAttempt = false;
+                            connectWifiProc.running = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        Column {
+            id: wifiPasswordControls
+            width: parent.width
+            anchors.centerIn: parent
+            visible: netPopup.selectedWifi !== null
+            spacing: 10
+
+            Text {
+                width: parent.width
+                text: netPopup.selectedWifi ? netPopup.selectedWifi.ssid : ""
+                color: root.nord8
+                font.family: root.fontPrimary; font.pixelSize: 14; font.bold: true
+                elide: Text.ElideRight
+            }
+
+            TextField {
+                id: wifiPasswordField
+                width: parent.width
+                implicitHeight: 44
+                placeholderText: "Network password"
+                echoMode: TextInput.Password
+                selectByMouse: true
+                enabled: !connectWifiProc.running
+                color: root.nord6
+                placeholderTextColor: root.nord4
+                font.family: root.fontPrimary; font.pixelSize: 13
+                leftPadding: 12; rightPadding: 12
+                background: Rectangle {
+                    radius: 14
+                    color: Qt.alpha(root.nord1, root.surfaceOpacity)
+                    border.width: 1
+                    border.color: wifiPasswordField.activeFocus ? root.nord8 : Qt.alpha(root.nord4, 0.12)
+                }
+                onAccepted: netPopup.connectSelectedWifi()
+            }
+
+            Text {
+                width: parent.width
+                visible: netPopup.passwordError !== ""
+                text: netPopup.passwordError
+                color: root.nord11
+                wrapMode: Text.Wrap
+                font.family: root.fontPrimary; font.pixelSize: 11
+            }
+
+            Row {
+                width: parent.width
+                spacing: 8
+
+                Rectangle {
+                    width: (parent.width - parent.spacing) / 2
+                    height: 40; radius: 14
+                    color: Qt.alpha(root.nord1, root.surfaceOpacity)
+                    Text {
+                        anchors.centerIn: parent
+                        text: "Back"
+                        color: root.nord6
+                        font.family: root.fontPrimary; font.pixelSize: 12
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        enabled: !connectWifiProc.running
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: netPopup.returnToNetworkList()
+                    }
+                }
+
+                Rectangle {
+                    width: (parent.width - parent.spacing) / 2
+                    height: 40; radius: 14
+                    color: wifiPasswordField.text.length > 0 && !connectWifiProc.running
+                        ? root.nord8 : Qt.alpha(root.nord8, 0.35)
+                    Text {
+                        anchors.centerIn: parent
+                        text: connectWifiProc.running ? "Connecting…" : "Connect"
+                        color: root.nord0
+                        font.family: root.fontPrimary; font.pixelSize: 12; font.bold: true
+                    }
+                    MouseArea {
+                        anchors.fill: parent
+                        enabled: wifiPasswordField.text.length > 0 && !connectWifiProc.running
+                        cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                        onClicked: netPopup.connectSelectedWifi()
+                    }
                 }
             }
         }
@@ -1046,6 +1598,19 @@ Item {
             "tlp-profile", profile
         ]
         onRunningChanged: if (!running) batProc.running = true
+        onExited: (exitCode, exitStatus) => {
+            if (exitCode !== 0) {
+                root.pendingTlpProfile = "";
+                tlpPendingTimer.stop();
+            }
+        }
+    }
+
+    Timer {
+        id: tlpPendingTimer
+        interval: 10000
+        repeat: false
+        onTriggered: root.pendingTlpProfile = ""
     }
 
     AnimatedPopup {
@@ -1107,6 +1672,7 @@ Item {
                             anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                             onClicked: {
                                 root.pendingTlpProfile = modelData.profile;
+                                tlpPendingTimer.restart();
                                 tlpSetProc.profile = modelData.profile;
                                 tlpSetProc.running = true;
                             }
