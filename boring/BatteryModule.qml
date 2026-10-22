@@ -9,24 +9,25 @@ Rectangle {
     property string batteryText
     property string batteryStatus
     property real surfaceOpacity: 0.8
-    property PopupWindow pwrPopup
+    property AnimatedPopup pwrPopup
     property var otherPopups: []
     readonly property bool hovered: batMouse.containsMouse
+    readonly property real batteryPercentage: parseInt(batteryText, 10)
 
-    width: batMouse.containsMouse ? 140 : 40; height: 28; color: Qt.alpha(nord1, surfaceOpacity); radius: 12; anchors.verticalCenter: parent.verticalCenter
-    Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+    width: batteryContent.implicitWidth + 24; height: 28; color: Qt.alpha(nord1, surfaceOpacity); radius: 12; anchors.verticalCenter: parent.verticalCenter
     Row {
+        id: batteryContent
         anchors.centerIn: parent; spacing: 8
-        SvgIcon {
-            anchors.verticalCenter: parent.verticalCenter; width: 18; height: 18; iconColor: nord6
-            path: "M6 8h10a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2z M18 11h2v2h-2z M8 10h6v4H8z"
-            fill: true
+        Rectangle {
+            anchors.verticalCenter: parent.verticalCenter; width: 8; height: 8; radius: 4
+            color: isNaN(batteryPercentage) ? nord6
+                : batteryPercentage >= 40 ? "#A3BE8C"
+                : batteryPercentage >= 20 ? "#D08770" : "#BF616A"
         }
         Text {
             anchors.verticalCenter: parent.verticalCenter
-            text: batteryText + (batteryStatus === "Charging" ? " (Charging)" : batteryStatus === "Discharging" ? " (Unplugged)" : batteryStatus === "Full" ? " (Full)" : "")
+            text: batteryText
             color: nord6; font.family: fontPrimary; font.pixelSize: 12
-            visible: batMouse.containsMouse
         }
     }
     MouseArea {

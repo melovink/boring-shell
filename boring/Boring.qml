@@ -8,6 +8,7 @@ import Quickshell.Wayland
 import Quickshell.Hyprland
 import Quickshell.Services.SystemTray
 import Quickshell.Services.Notifications
+import Quickshell.Services.Pipewire
 import Quickshell.Io
 
 Item {
@@ -166,6 +167,7 @@ Item {
     property string batteryStatus: "Unknown"
     // TLP power profile from /run/tlp/last_pwr: performance, balanced or power-saver.
     property string tlpProfile: ""
+    property string pendingTlpProfile: ""
     property string mpdRawText: "Stopped"
     property bool mpdPlaying: false
     property string mpdText: {
@@ -278,6 +280,10 @@ Item {
                 var tlpLine = lines.length > 0 && lines[lines.length - 1].startsWith("tlp") ? lines.pop() : "tlp";
                 var profiles = { "0": "performance", "1": "balanced", "2": "power-saver" };
                 root.tlpProfile = profiles[tlpLine.substring(3).trim()] || "";
+                if (root.pendingTlpProfile !== ""
+                    && (root.pendingTlpProfile === root.tlpProfile || !tlpSetProc.running)) {
+                    root.pendingTlpProfile = "";
+                }
                 if (lines.length >= 2) {
                     root.batteryText = lines[0] + "%";
                     root.batteryStatus = lines[1];
@@ -334,23 +340,14 @@ Item {
     GithubContributions {
         visible: root.githubContributionsEnabled
         username: root.githubUsername
-        nord0: root.nord0
-        nord1: root.nord1
-        nord4: root.nord4
-        nord6: root.nord6
-        fontPrimary: root.fontPrimary
-        fontMono: root.fontMono
-        surfaceOpacity: root.surfaceOpacity
     }
 
     PanelWindow {
         id: dynamicIsland
         anchors { top: true; left: true; right: true; }
-        // Fixed at the tallest state rather than animated. Resizing a layer-shell
-        // window reallocates the surface and input region every frame, which
-        // stuttered badly; the Region mask already trims input to the bar itself,
-        // so the extra room is never hit.
-        height: 100
+        // One fixed surface holds the bar and attached menus. The mask passes
+        // input through everywhere else without resizing the window each frame.
+        height: screen.height
         // Reserve only the visible portion of the expanded bar so application
         // windows move below it instead of being covered by the overlay layer.
         readonly property int edgeMargin: 8
@@ -366,35 +363,24 @@ Item {
         color: "transparent"
         WlrLayershell.layer: WlrLayer.Overlay
 
-        BackgroundEffect.blurRegion: Region {
-            // Keep blur geometry on the settled target instead of following the
-            // spring frame-by-frame. That prevents the compositor from briefly
-            // applying a new blur region to the whole layer surface.
-            x: dynamicIsland.blurReady
-                ? (dynamicIsland.width - dynamicIsland.targetWidth) / 2
-                : 0
-            y: dynamicIsland.blurReady ? dynamicIsland.targetTopMargin : 0
-            width: dynamicIsland.blurReady ? dynamicIsland.targetWidth : 0
-            height: dynamicIsland.blurReady ? dynamicIsland.targetHeight : 0
-            radius: dynamicIsland.blurReady ? dynamicIsland.targetHeight / 2 : 0
+        // Keep blur active as the attached region follows popup animations.
+        BackgroundEffect.blurRegion: AttachedRegion {
+            surface: background
+            active: dynamicIsland.blurReady
         }
 
-        mask: Region {
-            x: background.x
-            y: background.y
-            width: background.width
-            height: background.height
-        }
+        mask: AttachedRegion { surface: background }
 
         // A notification outranks hover: the card is only legible at full width, so
         // it never appears in the 120px collapsed sliver. Two thirds of the
         // expanded bar, so the bar grows into the card rather than jumping.
         readonly property bool notifActive: root.activeNotification !== null
-        property bool isExpanded: root.barHeld || hoverHandler.hovered || calPopup.visible || volPopup.visible || netPopup.visible || pwrPopup.visible || trayModule.isTrayMenuOpen
+        property bool isExpanded: root.barHeld || hoverHandler.hovered || background.popupVisible
         property bool barRevealComplete: false
         property bool barHideComplete: true
         readonly property real targetHeight: notifActive ? 76 : 46
-        property real targetWidth: notifActive ? 520 : (barRevealComplete ? 780 : 120)
+        property real targetWidth: notifActive ? 520
+            : (barRevealComplete ? expandedModules.implicitWidth + 40 : 120)
         readonly property real targetTopMargin: notifActive
             ? edgeMargin
             : ((isExpanded || !barHideComplete) ? edgeMargin : hiddenTopMargin)
@@ -448,7 +434,7 @@ Item {
             }
         }
 
-        GradientBorder {
+        AttachedSurface {
             id: background
             anchors.top: parent.top
             anchors.topMargin: dynamicIsland.targetTopMargin
@@ -465,11 +451,10 @@ Item {
             width: dynamicIsland.targetWidth
             height: dynamicIsland.targetHeight
             color: Qt.alpha(root.nord0, root.surfaceOpacity)
+            outlineColor: Qt.alpha(root.nord4, 0.12)
             radius: height / 2
-            // Place the lightest point one third up from the bottom edge, then
-            // fade it back out before the clipped bottom edge.
-            gradientEndPosition: 1 / 3
-            gradientTail: "#00fff7ff"
+            popups: [calPopup, volPopup, netPopup, pwrPopup, trayModule.popup]
+            barHovered: hoverHandler.hovered
 
             Behavior on width {
                 SpringAnimation {
@@ -577,6 +562,7 @@ Item {
                     surfaceOpacity: root.surfaceOpacity
                     fontPrimary: root.fontPrimary
                     volumeText: root.volumeText
+                    volumeLevel: root.volumeLevel
                     volPopup: volPopup
                     otherPopups: [calPopup, netPopup, pwrPopup, trayModule.popup]
                 }
@@ -612,6 +598,7 @@ Item {
                 // App Tray
                 TrayModule {
                     id: trayModule
+                    popupHost: background
                     nord0: root.nord0
                     nord1: root.nord1
                     nord6: root.nord6
@@ -746,62 +733,60 @@ Item {
     }
 
     // Phase 4: Popups
-    // Every popup content tree is wrapped in PopupHoverArea, which closes the
-    // popup once the pointer has left both the popup and its module.
+    // Menus share the bar surface and close after the pointer leaves the bar
+    // and menu; active slider drags keep the volume menu open.
     // Calendar Popup
-    PopupWindow {
+    AnimatedPopup {
         id: calPopup
-        anchor {
-            item: clockRect
-            edges: Edges.Bottom
-            gravity: Edges.Bottom
+        property var calendarDate: new Date()
+        readonly property int firstWeekday: new Date(
+            calendarDate.getFullYear(), calendarDate.getMonth(), 1).getDay()
+        readonly property int daysInMonth: new Date(
+            calendarDate.getFullYear(), calendarDate.getMonth() + 1, 0).getDate()
+
+        popupHost: background
+        anchorItem: clockRect
+        anchorHovered: clockRect.hovered
+        panelWidth: 280
+        panelHeight: calendarControls.implicitHeight + padding * 2
+
+        Timer {
+            interval: 60000
+            repeat: true
+            running: true
+            onTriggered: calPopup.calendarDate = new Date()
         }
-        visible: false
-        width: 280
-        height: 280
-        color: "transparent"
 
-        BackgroundEffect.blurRegion: Region {
-            item: calendarBackground
-            radius: calendarBackground.radius
-        }
+        Column {
+            id: calendarControls
+            width: parent.width
+            anchors.centerIn: parent
+            spacing: 16
+            Text { text: Qt.formatDateTime(calPopup.calendarDate, "MMMM yyyy"); color: root.nord8; font.family: root.fontPrimary; font.pixelSize: 16; font.bold: true; anchors.horizontalCenter: parent.horizontalCenter }
 
-        PopupHoverArea {
-            popup: calPopup
-            anchorHovered: clockRect.hovered
-
-            GradientBorder {
-                id: calendarBackground
-                anchors.fill: parent
-                anchors.topMargin: 10
-                color: Qt.alpha(root.nord0, root.surfaceOpacity)
-                radius: 12
-
-                Column {
-                    anchors.centerIn: parent
-                    spacing: 12
-                    Text { text: Qt.formatDateTime(new Date(), "MMMM yyyy"); color: root.nord8; font.family: root.fontPrimary; font.pixelSize: 16; font.bold: true; anchors.horizontalCenter: parent.horizontalCenter }
-                    
-                    Grid {
-                        columns: 7; spacing: 8
-                        // Weekdays
-                        Repeater {
-                            model: ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]
-                            Text { text: modelData; color: root.nord4; font.family: root.fontPrimary; font.pixelSize: 12; width: 24; horizontalAlignment: Text.AlignHCenter }
-                        }
-                        // Simple representation of days 1-31
-                        Repeater {
-                            model: 31
-                            Rectangle {
-                                width: 24; height: 24; radius: 12
-                                color: (index + 1) === parseInt(Qt.formatDateTime(new Date(), "d")) ? root.nord8 : "transparent"
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: index + 1
-                                    color: (index + 1) === parseInt(Qt.formatDateTime(new Date(), "d")) ? root.nord0 : root.nord6
-                                    font.family: root.fontPrimary; font.pixelSize: 12
-                                }
-                            }
+            Grid {
+                anchors.horizontalCenter: parent.horizontalCenter
+                columns: 7; spacing: 8
+                // Weekdays
+                Repeater {
+                    model: ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]
+                    Text { text: modelData; color: root.nord4; font.family: root.fontPrimary; font.pixelSize: 12; width: 28; horizontalAlignment: Text.AlignHCenter }
+                }
+                // Six weeks keep the calendar aligned for every month layout.
+                Repeater {
+                    model: 42
+                    Rectangle {
+                        width: 28; height: 28; radius: 14
+                        readonly property int dayNumber: index - calPopup.firstWeekday + 1
+                        readonly property bool hasDate: dayNumber > 0 && dayNumber <= calPopup.daysInMonth
+                        readonly property bool isToday: hasDate && dayNumber === calPopup.calendarDate.getDate()
+                        color: isToday ? root.nord8 : "transparent"
+                        Text {
+                            anchors.centerIn: parent
+                            visible: parent.hasDate
+                            text: parent.hasDate ? parent.dayNumber : ""
+                            color: parent.isToday ? root.nord0 : root.nord6
+                            font.family: root.fontPrimary; font.pixelSize: 12
                         }
                     }
                 }
@@ -810,15 +795,16 @@ Item {
     }
 
     // Volume Popup
-    PopupWindow {
+    AnimatedPopup {
         id: volPopup
-        anchor { item: volRect; edges: Edges.Bottom; gravity: Edges.Bottom }
-        visible: false; width: 200; height: 100; color: "transparent"
+        readonly property PwNode outputDevice: Pipewire.defaultAudioSink
+        readonly property PwNode inputDevice: Pipewire.defaultAudioSource
 
-        BackgroundEffect.blurRegion: Region {
-            item: volumeBackground
-            radius: volumeBackground.radius
-        }
+        anchorItem: volRect
+        popupHost: background
+        anchorHovered: volRect.hovered
+        hold: volSlider.pressed
+        panelHeight: volumeControls.implicitHeight + padding * 2
         
         Process {
             id: toggleMuteProc
@@ -826,45 +812,139 @@ Item {
             onRunningChanged: if(!running) volProc.running = true
         }
 
-        PopupHoverArea {
-            popup: volPopup
-            anchorHovered: volRect.hovered
-            // The drag holds the pointer grab, so hover can read false mid-drag.
-            hold: volSlider.pressed
+        Column {
+            id: volumeControls
+            width: parent.width
+            spacing: 16
 
-            GradientBorder {
-                id: volumeBackground
-                anchors.fill: parent; anchors.topMargin: 10; color: Qt.alpha(root.nord0, root.surfaceOpacity); radius: 12
-                
+            Repeater {
+                model: [
+                    { label: "Output device", device: volPopup.outputDevice, input: false },
+                    { label: "Input device", device: volPopup.inputDevice, input: true }
+                ]
                 Column {
-                    anchors.centerIn: parent; spacing: 16; width: parent.width - 32
-                    RowLayout {
-                        width: parent.width; spacing: 8
-                        Text { text: "Mute"; color: root.nord6; font.family: root.fontPrimary; font.pixelSize: 14 }
-                        Rectangle {
-                            Layout.alignment: Qt.AlignRight
-                            width: 40; height: 20; radius: 10
-                            color: root.volumeText === "Muted"
-                                ? Qt.alpha(root.nord11, root.surfaceOpacity)
-                                : Qt.alpha(root.nord1, root.surfaceOpacity)
-                            MouseArea {
-                                anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                                onClicked: toggleMuteProc.running = true
+                    id: deviceSection
+                    required property var modelData
+                    width: volumeControls.width
+                    spacing: 8
+
+                    Text {
+                        text: deviceSection.modelData.label
+                        color: root.nord4
+                        font.family: root.fontPrimary; font.pixelSize: 13; font.weight: Font.Medium
+                    }
+                    Rectangle {
+                        width: parent.width
+                        height: Math.max(52, deviceName.implicitHeight + 24)
+                        radius: 16
+                        color: Qt.alpha(root.nord1, root.surfaceOpacity)
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.margins: 12
+                            spacing: 12
+
+                            SvgIcon {
+                                Layout.alignment: Qt.AlignVCenter
+                                width: 20; height: 20; iconColor: root.nord8
+                                path: deviceSection.modelData.input
+                                    ? "M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0z M5 10v2a7 7 0 0 0 14 0v-2 M12 19v3 M8 22h8"
+                                    : "M3 14v-3a9 9 0 0 1 18 0v3 M3 13h3v8H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2 M21 13h-3v8h1a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2"
+                            }
+                            Text {
+                                id: deviceName
+                                Layout.fillWidth: true
+                                text: deviceSection.modelData.device
+                                    ? (deviceSection.modelData.device.description || deviceSection.modelData.device.nickname || deviceSection.modelData.device.name)
+                                    : "No device"
+                                textFormat: Text.PlainText
+                                wrapMode: Text.Wrap
+                                color: root.nord6; font.family: root.fontPrimary; font.pixelSize: 13
                             }
                         }
                     }
-                    // The level is only pushed into the slider while it is not being
-                    // dragged. Binding it unconditionally let every 2s poll and every
-                    // wpctl round-trip snap the handle back mid-drag.
-                    Slider {
-                        id: volSlider
-                        width: parent.width
-                        from: 0.0; to: 1.0
-                        onMoved: root.setVolume(value)
-                        Binding on value {
-                            when: !volSlider.pressed
-                            value: root.volumeLevel
-                            restoreMode: Binding.RestoreNone
+                }
+            }
+
+            Column {
+                width: parent.width
+                spacing: 8
+
+                RowLayout {
+                    width: parent.width
+                    Text {
+                        Layout.fillWidth: true
+                        text: root.volumeText === "Muted" ? "Volume (muted)" : "Volume"
+                        color: root.nord4; font.family: root.fontPrimary; font.pixelSize: 13; font.weight: Font.Medium
+                    }
+                    Text {
+                        text: Math.round(root.volumeLevel * 100) + "%"
+                        color: root.nord8; font.family: root.fontPrimary; font.pixelSize: 13; font.weight: Font.Medium
+                    }
+                }
+                Slider {
+                    id: volSlider
+                    width: parent.width
+                    implicitHeight: 36
+                    padding: 0
+                    from: 0.0; to: 1.0
+                    onMoved: root.setVolume(value)
+                    // Polls must not reset the slider while it is being dragged.
+                    Binding on value {
+                        when: !volSlider.pressed
+                        value: root.volumeLevel
+                        restoreMode: Binding.RestoreNone
+                    }
+                    background: Item {
+                        x: volSlider.leftPadding
+                        y: volSlider.topPadding + (volSlider.availableHeight - height) / 2
+                        width: volSlider.availableWidth
+                        height: 12
+
+                        Rectangle {
+                            radius: 6
+                            color: Qt.alpha(root.nord1, root.surfaceOpacity)
+                            anchors.fill: parent
+                        }
+                        Rectangle {
+                            width: parent.width * volSlider.visualPosition
+                            height: parent.height; radius: 6
+                            color: root.nord8
+                        }
+                    }
+                    handle: Item {
+                        x: volSlider.leftPadding + volSlider.visualPosition * (volSlider.availableWidth - width)
+                        y: volSlider.topPadding + (volSlider.availableHeight - height) / 2
+                        width: 4; height: 28
+                    }
+                }
+            }
+
+            RowLayout {
+                width: parent.width
+                Text {
+                    Layout.fillWidth: true
+                    text: "Mute output"
+                    color: root.nord6; font.family: root.fontPrimary; font.pixelSize: 13
+                }
+                Switch {
+                    id: muteSwitch
+                    padding: 0
+                    implicitWidth: 44; implicitHeight: 24
+                    checked: root.volumeText === "Muted"
+                    Accessible.name: "Mute output"
+                    onToggled: toggleMuteProc.running = true
+                    indicator: Rectangle {
+                        width: 44; height: 24; radius: 12
+                        color: muteSwitch.checked ? root.nord8 : root.nord1
+                        Behavior on color { ColorAnimation { duration: 200 } }
+
+                        Rectangle {
+                            x: muteSwitch.checked ? 24 : 4; y: 4
+                            width: 16; height: 16; radius: 8
+                            color: muteSwitch.checked ? root.nord0 : root.nord4
+                            Behavior on x { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                            Behavior on color { ColorAnimation { duration: 200 } }
                         }
                     }
                 }
@@ -909,57 +989,45 @@ Item {
         onRunningChanged: if (!running) { wifiProc.running = true; scanWifiProc.running = true; }
     }
 
-    PopupWindow {
+    AnimatedPopup {
         id: netPopup
-        anchor { item: wifiRect; edges: Edges.Bottom; gravity: Edges.Bottom }
-        visible: false; width: 220; height: 260; color: "transparent"
+        popupHost: background
+        anchorItem: wifiRect
+        anchorHovered: wifiRect.hovered
+        panelWidth: 320
+        panelHeight: Math.min(392, Math.max(44, networkList.contentHeight)) + padding * 2
 
-        BackgroundEffect.blurRegion: Region {
-            item: networkBackground
-            radius: networkBackground.radius
-        }
-
-        PopupHoverArea {
-            popup: netPopup
-            anchorHovered: wifiRect.hovered
-
-            GradientBorder {
-                id: networkBackground
-                anchors.fill: parent; anchors.topMargin: 10; color: Qt.alpha(root.nord0, root.surfaceOpacity); radius: 12
-                
-                ListView {
+        ListView {
+            id: networkList
+            anchors.fill: parent
+            model: root.wifiList
+            spacing: 8
+            clip: true
+            delegate: Rectangle {
+                width: ListView.view.width; height: 44; radius: 16
+                color: modelData.active
+                    ? Qt.alpha(root.nord8, root.surfaceOpacity)
+                    : Qt.alpha(root.nord1, root.surfaceOpacity)
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter; anchors.left: parent.left; anchors.leftMargin: 12
+                    width: parent.width - 24 - (connectedLabel.visible ? connectedLabel.implicitWidth + 8 : 0)
+                    text: modelData.ssid; elide: Text.ElideRight
+                    color: modelData.active ? root.nord0 : root.nord6
+                    font.family: root.fontPrimary; font.pixelSize: 13; font.bold: modelData.active
+                }
+                Text {
+                    id: connectedLabel
+                    visible: modelData.active
+                    anchors.verticalCenter: parent.verticalCenter; anchors.right: parent.right; anchors.rightMargin: 12
+                    text: "Connected"; color: root.nord0
+                    font.family: root.fontPrimary; font.pixelSize: 10
+                }
+                MouseArea {
                     anchors.fill: parent
-                    anchors.margins: 12
-                    model: root.wifiList
-                    spacing: 8
-                    clip: true
-                    delegate: Rectangle {
-                        width: ListView.view.width; height: 32; radius: 8
-                        color: modelData.active
-                            ? Qt.alpha(root.nord8, root.surfaceOpacity)
-                            : Qt.alpha(root.nord1, root.surfaceOpacity)
-                        Text {
-                            anchors.verticalCenter: parent.verticalCenter; anchors.left: parent.left; anchors.leftMargin: 12
-                            width: parent.width - 24 - (connectedLabel.visible ? connectedLabel.implicitWidth + 8 : 0)
-                            text: modelData.ssid; elide: Text.ElideRight
-                            color: modelData.active ? root.nord0 : root.nord6
-                            font.family: root.fontPrimary; font.pixelSize: 12; font.bold: modelData.active
-                        }
-                        Text {
-                            id: connectedLabel
-                            visible: modelData.active
-                            anchors.verticalCenter: parent.verticalCenter; anchors.right: parent.right; anchors.rightMargin: 12
-                            text: "Connected"; color: root.nord0
-                            font.family: root.fontPrimary; font.pixelSize: 10
-                        }
-                        MouseArea {
-                            anchors.fill: parent
-                            // Re-running "connect" on the active network only drops it briefly.
-                            enabled: !modelData.active
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: { connectWifiProc.targetSsid = modelData.ssid; connectWifiProc.running = true; }
-                        }
-                    }
+                    // Re-running "connect" on the active network only drops it briefly.
+                    enabled: !modelData.active
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: { connectWifiProc.targetSsid = modelData.ssid; connectWifiProc.running = true; }
                 }
             }
         }
@@ -970,55 +1038,77 @@ Item {
     Process {
         id: tlpSetProc
         property string profile: "performance"
-        command: ["pkexec", "tlp", profile]
+        // Use TLP's user-session profile interface when tlp-pd is installed.
+        // Keep the authenticated command available until that service is set up.
+        command: [
+            "sh", "-c",
+            "if command -v tlpctl >/dev/null 2>&1; then exec tlpctl \"$1\"; else exec pkexec tlp \"$1\"; fi",
+            "tlp-profile", profile
+        ]
         onRunningChanged: if (!running) batProc.running = true
     }
 
-    PopupWindow {
+    AnimatedPopup {
         id: pwrPopup
-        anchor { item: batRect; edges: Edges.Bottom; gravity: Edges.Bottom }
-        visible: false; width: 180; height: 196; color: "transparent"
+        popupHost: background
+        anchorItem: batRect
+        anchorHovered: batRect.hovered
+        panelWidth: 256
+        panelHeight: powerControls.implicitHeight + padding * 2
 
-        BackgroundEffect.blurRegion: Region {
-            item: powerBackground
-            radius: powerBackground.radius
-        }
+        Column {
+            id: powerControls
+            anchors.centerIn: parent; width: parent.width
+            Row {
+                id: powerProfileGrid
+                width: parent.width
+                spacing: 8
 
-        PopupHoverArea {
-            popup: pwrPopup
-            anchorHovered: batRect.hovered
+                Repeater {
+                    model: [
+                        {
+                            profile: "power-saver",
+                            label: "Power saver",
+                            icon: "M20 4c-9 0-15 3-15 9a6 6 0 0 0 6 6c6 0 9-6 9-15z M5 19c2-4 6-7 11-9",
+                            filled: false
+                        },
+                        {
+                            profile: "balanced",
+                            label: "Balanced",
+                            icon: "M12 4v16 M5 7h14 M5 7l-3 6h6L5 7z M19 7l-3 6h6L19 7z M8 21h8",
+                            filled: false
+                        },
+                        {
+                            profile: "performance",
+                            label: "Performance",
+                            icon: "M13.3 2 5.5 13h5.7l-.6 9 7.9-12h-5.8z",
+                            filled: true
+                        }
+                    ]
+                    Rectangle {
+                        readonly property bool current: (root.pendingTlpProfile !== ""
+                            ? root.pendingTlpProfile : root.tlpProfile) === modelData.profile
+                        Accessible.name: modelData.label
+                        width: (powerProfileGrid.width - powerProfileGrid.spacing * 2) / 3
+                        height: 64
+                        radius: 16
+                        color: current
+                            ? Qt.alpha(root.nord8, root.surfaceOpacity)
+                            : Qt.alpha(root.nord1, root.surfaceOpacity)
 
-            GradientBorder {
-                id: powerBackground
-                anchors.fill: parent; anchors.topMargin: 10; color: Qt.alpha(root.nord0, root.surfaceOpacity); radius: 12
-                
-                Column {
-                    anchors.centerIn: parent; spacing: 10; width: parent.width - 24
-                    Text {
-                        width: parent.width; horizontalAlignment: Text.AlignHCenter
-                        text: "TLP: " + (root.tlpProfile !== "" ? root.tlpProfile : "unknown")
-                        color: root.nord4; font.family: root.fontPrimary; font.pixelSize: 12
-                    }
-                    Repeater {
-                        model: [
-                            { profile: "performance", label: "Performance (AC)" },
-                            { profile: "balanced", label: "Balanced (BAT)" },
-                            { profile: "power-saver", label: "Power Saver" }
-                        ]
-                        Rectangle {
-                            readonly property bool current: root.tlpProfile === modelData.profile
-                            width: parent.width; height: 36; radius: 8
-                            color: current
-                                ? Qt.alpha(root.nord8, root.surfaceOpacity)
-                                : Qt.alpha(root.nord1, root.surfaceOpacity)
-                            Text {
-                                anchors.centerIn: parent; text: modelData.label
-                                color: parent.current ? root.nord0 : root.nord6
-                                font.family: root.fontPrimary; font.pixelSize: 14; font.bold: parent.current
-                            }
-                            MouseArea {
-                                anchors.fill: parent; cursorShape: Qt.PointingHandCursor
-                                onClicked: { tlpSetProc.profile = modelData.profile; tlpSetProc.running = true; pwrPopup.visible = false; }
+                        SvgIcon {
+                            anchors.centerIn: parent
+                            width: 28; height: 28
+                            path: modelData.icon
+                            fill: modelData.filled
+                            iconColor: parent.current ? root.nord0 : root.nord6
+                        }
+                        MouseArea {
+                            anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                root.pendingTlpProfile = modelData.profile;
+                                tlpSetProc.profile = modelData.profile;
+                                tlpSetProc.running = true;
                             }
                         }
                     }

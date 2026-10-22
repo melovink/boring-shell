@@ -10,7 +10,7 @@ Rectangle {
     property color nord8
     property string fontPrimary
     property string fontMono
-    property PopupWindow calPopup
+    property AnimatedPopup calPopup
     property var otherPopups: []
     readonly property bool hovered: clockMouse.containsMouse
 

@@ -11,14 +11,14 @@ Rectangle {
     property string wifiText
     property string networkType
     property real surfaceOpacity: 0.8
-    property PopupWindow netPopup
+    property AnimatedPopup netPopup
     property var otherPopups: []
     property Process scanWifiProc
     readonly property bool hovered: wifiMouse.containsMouse
 
-    width: wifiMouse.containsMouse ? 120 : 40; height: 28; color: Qt.alpha(nord1, surfaceOpacity); radius: 12; anchors.verticalCenter: parent.verticalCenter
-    Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+    width: networkContent.implicitWidth + 24; height: 28; color: Qt.alpha(nord1, surfaceOpacity); radius: 12; anchors.verticalCenter: parent.verticalCenter
     Row {
+        id: networkContent
         anchors.centerIn: parent; spacing: 8
         SvgIcon {
             anchors.verticalCenter: parent.verticalCenter; width: 18; height: 18
@@ -27,8 +27,8 @@ Rectangle {
         }
         Text {
             anchors.verticalCenter: parent.verticalCenter
-            text: wifiText; color: nord6; font.family: fontPrimary; font.pixelSize: 12
-            visible: wifiMouse.containsMouse; elide: Text.ElideRight; width: visible ? 70 : 0
+            text: wifiText.length > 10 ? wifiText.substring(0, 7) + "..." : wifiText
+            color: nord6; font.family: fontPrimary; font.pixelSize: 12
         }
     }
     MouseArea {

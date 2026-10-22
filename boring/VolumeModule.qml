@@ -7,23 +7,24 @@ Rectangle {
     property color nord6
     property string fontPrimary
     property string volumeText
+    property real volumeLevel: 0
     property real surfaceOpacity: 0.8
-    property PopupWindow volPopup
+    property AnimatedPopup volPopup
     property var otherPopups: []
     readonly property bool hovered: volMouse.containsMouse
 
-    width: volMouse.containsMouse ? 80 : 40; height: 28; color: Qt.alpha(nord1, surfaceOpacity); radius: 12; anchors.verticalCenter: parent.verticalCenter
-    Behavior on width { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+    width: volumeContent.implicitWidth + 24; height: 28; color: Qt.alpha(nord1, surfaceOpacity); radius: 12; anchors.verticalCenter: parent.verticalCenter
     Row {
+        id: volumeContent
         anchors.centerIn: parent; spacing: 8
         SvgIcon {
             anchors.verticalCenter: parent.verticalCenter; width: 16; height: 16; iconColor: nord6
-            path: volumeText === "Muted" ? "M4 9v6h4l5 4V5L8 9z M16.2 9.8l4.4 4.4 M20.6 9.8l-4.4 4.4" : "M4 9v6h4l5 4V5L8 9z M16 9.5a3 3 0 0 1 0 5 M18.5 7.5a6 6 0 0 1 0 9"
+            path: "M3 14v-3a9 9 0 0 1 18 0v3 M3 13h3v8H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2 M21 13h-3v8h1a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2"
+            opacity: volumeText === "Muted" ? 0.5 : 1
         }
         Text {
             anchors.verticalCenter: parent.verticalCenter
-            text: volumeText; color: nord6; font.family: fontPrimary; font.pixelSize: 12
-            visible: volMouse.containsMouse
+            text: Math.round(volumeLevel * 100); color: nord6; font.family: fontPrimary; font.pixelSize: 12
         }
     }
     MouseArea {
