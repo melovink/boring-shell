@@ -40,6 +40,9 @@ surface uses the top bar's Nord palette, opacity, border and blur. Like the cloc
 and contribution grid, it stays behind application windows and passes clicks
 through without reserving workspace or taking keyboard focus.
 
+The meters default to 1.2× their original size (about 278×161px), including rings,
+text, padding and corner radius. Set `sizeScale` on `SystemMonitor` to adjust the scale.
+
 The widget is inset 12px from the screen edges while the bar is hidden. It follows
 the normal bar's animation downward to keep 12px of clearance when it appears.
 Launcher results and wallpaper previews do not change this position. The
@@ -47,15 +50,28 @@ GitHub contribution grid sits 12px below it and moves with it. Set
 `systemMonitorEnabled` on `Boring` to hide the meters; the grid then uses the top
 position with the same bar clearance.
 
-The first top-right control toggles the CPU/RAM widget, replacing the GIF control.
+The first top-right control toggles the CPU/RAM and image widgets, replacing the
+GIF control.
 The clock and GitHub grid retain their separate toggles. The GIF overlay is off
 by default and is no longer loaded by the shell.
 
-`SystemMetrics.qml` reads `/proc/stat` and `/proc/meminfo` directly once a second,
+`SystemMetrics.qml` reads `/proc/stat` and `/proc/meminfo` directly every 2000ms,
 without spawning polling processes. CPU usage is calculated between consecutive
 samples; RAM usage excludes available cache. Polling pauses while the widget is
 hidden. Check the calculations with `node boring/lib/system_metrics.test.mjs`
 from the parent Quickshell directory.
+
+## Desktop image
+
+`ImageWidget.qml` displays `forDisplayOnly/uuberu.jpg` in a square beside the GitHub
+grid, separated by 12px. The square follows the grid's height (112px by default).
+The image zooms and crops to fill the frame, with rounded corners and the same
+subtle border as the other widgets. Decoding is bounded to twice the display size.
+
+It uses the desktop bottom layer and passes clicks through. Hiding GitHub moves
+the image to the left edge; the widget toggle hides it together with the meters.
+It follows the normal bar's widget placement without moving for launcher results
+or wallpaper previews.
 
 ## GitHub contribution grid
 
@@ -68,8 +84,9 @@ monitor, with a soft border and background blur.
 Set `githubUsername` in `shell.qml` to change the account (default: `melovink`).
 The top-right toggle bar's GitHub icon shows or hides the grid.
 The grid is inset 12px from the left screen edge and sits below the CPU/RAM
-widget, matching Hyprland's `gaps_out` setting. Its `cellSize` (7) and
-`cellSpacing` (2) control its size.
+widget, matching Hyprland's `gaps_out` setting. Its `sizeScale` defaults to 1.2×,
+giving a 144×112px card with proportionally larger cells, padding and corners.
+Its base `cellSize` (7) and `cellSpacing` (2) remain configurable.
 
 `github_contributions.py` uses Python's standard library to read GitHub's public
 calendar, including daily counts and contribution levels. No token is required.

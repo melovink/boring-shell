@@ -525,6 +525,7 @@ Item {
     }
 
     GithubContributions {
+        id: githubContributions
         visible: root.githubContributionsEnabled
         username: root.githubUsername
         nord0: root.nord0
@@ -533,6 +534,20 @@ Item {
         topMargin: systemMonitor.visible
             ? systemMonitor.topMargin + systemMonitor.height + 12
             : root.desktopWidgetTopMargin
+    }
+
+    ImageWidget {
+        visible: root.systemMonitorEnabled
+        sideLength: githubContributions.implicitHeight
+        cornerRadius: 24 * githubContributions.sizeScale
+        borderWidth: githubContributions.sizeScale
+        topMargin: githubContributions.topMargin
+        edgeMargin: githubContributions.visible
+            ? githubContributions.edgeMargin + githubContributions.implicitWidth + 12
+            : systemMonitor.edgeMargin
+        nord0: root.nord0
+        nord4: root.nord4
+        surfaceOpacity: root.surfaceOpacity
     }
 
     PanelWindow {

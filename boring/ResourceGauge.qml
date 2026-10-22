@@ -12,14 +12,15 @@ Item {
     property color secondary: "#D8DEE9"
     property string fontPrimary: "Inter"
     property string fontMono: "JetBrains Mono"
+    property real sizeScale: 1.0
     readonly property bool ready: isFinite(value) && value >= 0
     property real progress: ready ? Math.max(0, Math.min(1, value)) : 0
-    readonly property real ringSize: 80
-    readonly property real lineWidth: 3.5
+    readonly property real ringSize: 80 * sizeScale
+    readonly property real lineWidth: 3.5 * sizeScale
     readonly property real ringRadius: (ringSize - lineWidth) / 2
 
-    implicitWidth: 92
-    implicitHeight: ringSize + 22
+    implicitWidth: 92 * sizeScale
+    implicitHeight: ringSize + 22 * sizeScale
 
     Behavior on progress {
         NumberAnimation { duration: 600; easing.type: Easing.OutCubic }
@@ -68,14 +69,14 @@ Item {
 
         Column {
             anchors.centerIn: parent
-            spacing: 2
+            spacing: 2 * root.sizeScale
 
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: root.ready ? Math.round(root.progress * 100) + "%" : "—"
                 color: root.foreground
                 font.family: root.fontMono
-                font.pixelSize: 18
+                font.pixelSize: 18 * root.sizeScale
                 font.weight: Font.Medium
             }
 
@@ -84,19 +85,19 @@ Item {
                 text: root.label
                 color: root.accent
                 font.family: root.fontPrimary
-                font.pixelSize: 10
+                font.pixelSize: 10 * root.sizeScale
                 font.weight: Font.Medium
-                font.letterSpacing: 0.7
+                font.letterSpacing: 0.7 * root.sizeScale
             }
         }
     }
 
     Text {
         anchors.horizontalCenter: parent.horizontalCenter
-        y: root.ringSize + 5
+        y: root.ringSize + 5 * root.sizeScale
         text: root.detail
         color: Qt.alpha(root.secondary, 0.7)
         font.family: root.fontMono
-        font.pixelSize: 10
+        font.pixelSize: 10 * root.sizeScale
     }
 }

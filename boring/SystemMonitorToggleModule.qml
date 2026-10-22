@@ -1,6 +1,6 @@
 import QtQuick
 
-// The CPU/RAM widget has its own control; GitHub keeps its separate toggle.
+// Desktop meters and the image share a control; GitHub keeps its separate toggle.
 Rectangle {
     id: root
 

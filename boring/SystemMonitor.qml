@@ -15,15 +15,16 @@ PanelWindow {
     property real surfaceOpacity: 0.78
     property string fontPrimary: "Inter"
     property string fontMono: "JetBrains Mono"
+    property real sizeScale: 1.2
     property int edgeMargin: 12
     property int topMargin: 12
-    property int refreshInterval: 1000
+    property int refreshInterval: 2000
 
     anchors { top: true; left: true }
     margins.left: root.edgeMargin
     margins.top: root.topMargin
-    implicitWidth: gauges.implicitWidth + 32
-    implicitHeight: gauges.implicitHeight + 32
+    implicitWidth: gauges.implicitWidth + 32 * root.sizeScale
+    implicitHeight: gauges.implicitHeight + 32 * root.sizeScale
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
     WlrLayershell.namespace: "boring-system-monitor"
@@ -45,20 +46,21 @@ PanelWindow {
     Rectangle {
         id: surface
         anchors.fill: parent
-        radius: 28
+        radius: 28 * root.sizeScale
         color: Qt.alpha(root.nord0, root.surfaceOpacity)
-        border.width: 1
+        border.width: root.sizeScale
         border.color: Qt.alpha(root.nord4, 0.12)
 
         Row {
             id: gauges
             anchors.centerIn: parent
-            spacing: 16
+            spacing: 16 * root.sizeScale
 
             ResourceGauge {
                 width: implicitWidth
                 height: implicitHeight
                 label: "CPU"
+                sizeScale: root.sizeScale
                 detail: "total usage"
                 value: metrics.cpuUsage
                 accent: root.nord8
@@ -72,6 +74,7 @@ PanelWindow {
                 width: implicitWidth
                 height: implicitHeight
                 label: "RAM"
+                sizeScale: root.sizeScale
                 detail: metrics.memoryTotal > 0
                     ? (metrics.memoryUsed / 1073741824).toFixed(1) + "/"
                         + (metrics.memoryTotal / 1073741824).toFixed(1) + " GiB"

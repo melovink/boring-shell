@@ -8,7 +8,7 @@ Scope {
     id: root
 
     property bool active: true
-    property int refreshInterval: 1000
+    property int refreshInterval: 2000
     property real cpuUsage: -1
     property real memoryUsed: 0
     property real memoryTotal: 0
