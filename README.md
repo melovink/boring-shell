@@ -2,7 +2,7 @@
 
 A Quickshell desktop shell with an integrated Spotlight application launcher.
 
-Run both components from this directory:
+Run the shell from this directory:
 
 ```sh
 quickshell -p .
@@ -11,7 +11,8 @@ quickshell -p .
 - [`boring/`](boring/README.md) contains the desktop shell and its widgets.
 - [`spotlight/`](spotlight/README.md) contains the application launcher, toggled
   with `Alt+Space`.
-- `shell.qml` starts both components in one Quickshell process.
+- The launcher opens beneath the top bar on its shared surface, like the
+  wallpaper picker. `shell.qml` starts the shell and launcher in one process.
 
 This directory is the root of the `melovink/boring-shell` Git repository.
 

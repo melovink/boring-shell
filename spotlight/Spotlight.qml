@@ -1,64 +1,35 @@
 import QtQuick
 import Quickshell
-import Quickshell.Hyprland
 import Quickshell.Io
-import Quickshell.Wayland
+import "../boring" as Boring
 import "lib/fuzzy.js" as Fuzzy
 
-Item {
+// The launcher shares the top bar's surface, animation, input mask and blur.
+Boring.AnimatedPopup {
     id: root
 
-    // ---- Palette ----
-    // Keep Spotlight's state local to this component while hosting it inside Boring's
-    // Quickshell process.
-    property color nord0: "#2E3440"
     property color nord1: "#3B4252"
-    property color nord2: "#434C5E"
+    property color nord4: "#D8DEE9"
     property color nord6: "#ECEFF4"
-    property string fontPrimary: "Outfit"
-    readonly property real surfaceOpacity: 0.69
+    property color nord8: "#88C0D0"
+    property string fontPrimary: "Inter"
+    property real surfaceOpacity: 0.78
+    property var otherPopups: []
 
-    // ---- Geometry ----
-    // The panel is a fixed 680 wide and animates between a bare search bar and
-    // panelMaxRows visible rows; nothing below ever exceeds the width.
-    readonly property int panelWidth: 580
-    readonly property int panelMaxRows: 9
-    // Extra vertical breathing room keeps app names and icons legible.
-    readonly property int rowHeight: 48
-    readonly property int fieldTopMargin: 22
-    readonly property int fieldHeight: 40
-    readonly property int dividerTop: 66
-    readonly property int listTop: 76
-    // Keep the final row clear of the panel's large rounded bottom corners,
-    // but keep the empty search bar compact.
-    readonly property int listBottomMargin: results.length > 0 ? 24 : 12
-    readonly property int listRows: Math.min(results.length, panelMaxRows)
-    readonly property int panelHeight: listTop + listRows * rowHeight + listBottomMargin
-    readonly property int shadowPad: 46
-    // Visible top edge of the panel at ~22% down the screen, as macOS Spotlight sits.
-    readonly property int panelTopMargin: 232
-    // Tune the Spotlight fade here. The actual blur radius is controlled by
-    // ../hypr/modules/decorations.lua under decoration.blur.size and passes.
-    readonly property int fadeDuration: 180
+    hold: true
+    panelWidth: 640
+    panelHeight: launcherPanel.implicitHeight + padding * 2
 
     readonly property string appImageDir: (Quickshell.env("HOME") || "") + "/AppImage"
     readonly property string iconCacheDir: Quickshell.cacheDir + "/appimages"
 
     // ---- State ----
-    property bool shown: false
-    // Keep the transparent layer alive for one compositor frame while its blur
-    // region is cleared. Hiding it immediately can leave one stale blurred frame.
-    property bool surfaceVisible: false
-    property bool blurActive: false
-    property real visualOpacity: 0
     property string query: ""
     property int selectedIndex: 0
     property var appImages: []
     property var iconMap: ({})
     property int iconRevision: 0
     property bool iconsBusy: false
-    readonly property string focusedScreen: Hyprland.focusedMonitor ? Hyprland.focusedMonitor.name
-        : (Quickshell.screens.length > 0 ? Quickshell.screens[0].name : "")
 
     // ---- Index ----
     // DesktopEntries.applications is already free of Hidden/NoDisplay entries.
@@ -100,32 +71,13 @@ Item {
     onResultsChanged: {
         if (root.selectedIndex >= root.results.length) root.selectedIndex = 0;
     }
-    onShownChanged: {
-        if (!root.shown) root.query = "";
-    }
-
-    Timer {
-        id: blurTeardownTimer
-        interval: 32
-        onTriggered: {
-            root.surfaceVisible = false;
-            root.visualOpacity = 0;
-        }
-    }
-
-    NumberAnimation {
-        id: fadeAnimation
-        target: root
-        property: "visualOpacity"
-        duration: root.fadeDuration
-        easing.type: Easing.OutCubic
-        onFinished: {
-            // Keep the blur region active for the whole fade, then remove it and
-            // leave the transparent layer up for one compositor frame.
-            if (!root.shown) {
-                root.blurActive = false;
-                blurTeardownTimer.restart();
-            }
+    onVisibleChanged: {
+        root.query = "";
+        root.selectedIndex = 0;
+        if (visible) {
+            for (var i = 0; i < root.otherPopups.length; i++)
+                root.otherPopups[i].visible = false;
+            root.scanAppImages();
         }
     }
 
@@ -265,35 +217,9 @@ Item {
     }
 
     // ---- Actions ----
-    function show(): void {
-        blurTeardownTimer.stop();
-        fadeAnimation.stop();
-        root.surfaceVisible = true;
-        root.blurActive = true;
-        root.query = "";
-        root.selectedIndex = 0;
-        root.shown = true;
-        fadeAnimation.from = root.visualOpacity;
-        fadeAnimation.to = 1;
-        fadeAnimation.restart();
-        root.scanAppImages();
-    }
-    function hide(): void {
-        fadeAnimation.stop();
-        root.shown = false;
-        if (!root.surfaceVisible) {
-            root.blurActive = false;
-            root.visualOpacity = 0;
-            return;
-        }
-        fadeAnimation.from = root.visualOpacity;
-        fadeAnimation.to = 0;
-        fadeAnimation.restart();
-    }
-    function toggle(): void {
-        if (root.shown) { root.hide(); return; }
-        root.show();
-    }
+    function show(): void { root.visible = true; }
+    function hide(): void { root.visible = false; }
+    function toggle(): void { root.visible = !root.visible; }
 
     function launch(item): void {
         if (!item) return;
@@ -331,82 +257,28 @@ Item {
 
     Component.onCompleted: root.scanAppImages()
 
-    // ---- Windows ----
-    // One window per monitor: every screen gets the dim backdrop like Spotlight, but only
-    // the focused monitor carries the panel and the exclusive keyboard focus.
-    Variants {
-        model: Quickshell.screens
+    SpotlightPanel {
+        id: launcherPanel
+        anchors.fill: parent
+        shown: root.visible
+        results: root.results
+        selectedIndex: root.selectedIndex
+        iconRevision: root.iconRevision
+        nord1: root.nord1
+        nord4: root.nord4
+        nord6: root.nord6
+        nord8: root.nord8
+        surfaceOpacity: root.surfaceOpacity
+        fontPrimary: root.fontPrimary
 
-        PanelWindow {
-            id: spotlightWindow
-            required property var modelData
-            screen: modelData
-
-            visible: root.surfaceVisible
-            color: "transparent"
-            exclusionMode: ExclusionMode.Ignore
-            anchors { top: true; left: true; right: true; bottom: true }
-            HyprlandWindow.opacity: root.visualOpacity
-
-            BackgroundEffect.blurRegion: Region {
-                // Blur the desktop behind Spotlight, but remove it before the
-                // layer is hidden so closing cannot flash a stale blurred frame.
-                item: root.blurActive ? spotlightWindow.contentItem : null
-            }
-
-            WlrLayershell.layer: WlrLayer.Overlay
-            WlrLayershell.namespace: "spotlight"
-            WlrLayershell.keyboardFocus: root.shown && modelData.name === root.focusedScreen
-                ? WlrKeyboardFocus.Exclusive
-                : WlrKeyboardFocus.None
-
-            // Transparent click-catcher: the compositor blur is the only full-screen
-            // backdrop; the panel itself supplies the translucent surface.
-            MouseArea {
-                anchors.fill: parent
-                visible: root.surfaceVisible
-                enabled: root.shown
-                onClicked: root.hide()
-            }
-
-            SpotlightPanel {
-                id: panel
-                visible: root.surfaceVisible && modelData.name === root.focusedScreen
-                shown: root.shown
-                x: Math.round((modelData.width - width) / 2)
-                y: Math.max(0, Math.round(modelData.height * 0.22) - root.shadowPad)
-
-                panelWidth: root.panelWidth
-                panelHeight: root.panelHeight
-                shadowPad: root.shadowPad
-                rowHeight: root.rowHeight
-                fieldTopMargin: root.fieldTopMargin
-                fieldHeight: root.fieldHeight
-                dividerTop: root.dividerTop
-                listTop: root.listTop
-                listBottomMargin: root.listBottomMargin
-                iconRevision: root.iconRevision
-
-                nord0: root.nord0
-                nord1: root.nord1
-                nord2: root.nord2
-                nord6: root.nord6
-                surfaceOpacity: root.surfaceOpacity
-                fontPrimary: root.fontPrimary
-
-                results: root.results
-                selectedIndex: root.selectedIndex
-
-                onQueryEdited: text => {
-                    root.query = text;
-                    root.selectedIndex = 0;
-                }
-                onMoveSelection: delta => root.moveSelection(delta)
-                onSelectIndex: i => root.selectIndex(i)
-                onActivate: root.activateSelected()
-                onActivateIndex: i => root.activateIndex(i)
-                onDismiss: root.hide()
-            }
+        onQueryEdited: text => {
+            root.query = text;
+            root.selectedIndex = 0;
         }
+        onMoveSelection: delta => root.moveSelection(delta)
+        onSelectIndex: i => root.selectIndex(i)
+        onActivate: root.activateSelected()
+        onActivateIndex: i => root.activateIndex(i)
+        onDismiss: root.hide()
     }
 }

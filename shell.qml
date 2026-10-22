@@ -2,9 +2,7 @@
 
 import Quickshell
 import "boring"
-import "spotlight"
 
 ShellRoot {
     Boring {}
-    Spotlight {}
 }

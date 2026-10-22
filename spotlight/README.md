@@ -1,7 +1,7 @@
 # Spotlight - Project Documentation
 
-A macOS-Spotlight-style launcher for applications and AppImages, hosted alongside
-the `boring` shell in the unified Quickshell process. Application icons use
+A Spotlight-style launcher for applications and AppImages, attached to the
+`boring` shell's top bar in the unified Quickshell process. Application icons use
 the installed `yet-another-monochrome-icon-set` theme, matching the GTK icon
 theme configured on the desktop.
 
@@ -56,10 +56,10 @@ usable `.DirIcon` fall back to `application-x-executable`.
 
 - `ALT+SPACE` toggles the launcher through the unified Quickshell process.
 - `Up`/`Down` move without wrapping, `Home`/`End` jump to the ends, `Enter`
-  launches, `Esc` or a click on the backdrop dismisses.
+  launches, `Esc` or a click outside the bar dismisses.
 - Opening clears the query and refocuses the field.
-- Every monitor gets the dimmed backdrop; only the focused monitor carries the
-  panel and exclusive keyboard focus.
+- The launcher shares the top bar's surface, blur, input mask and popup animation.
+  Opening another bar menu or receiving a notification dismisses it.
 - The keyboard is released before an app maps, otherwise the new window would
   inherit focus from our exclusive-focus layer surface.
 
@@ -69,14 +69,12 @@ it as the `ipc show` subcommand — so prefer `toggle`.
 
 ## Layout Notes
 
-The panel is 680px wide and sits about 22% down the focused monitor. Its height
-is driven by the result count: 88px with no rows, up to 448px at 9 visible rows
-of 40px. The window is sized with extra padding on all sides so the shadow has
-room and is not clipped at the screen edge.
+The panel opens beneath the center of the top bar, matching the wallpaper picker.
+Its width follows the bar up to 640px. Its height grows from a 40px search field
+to at most nine visible 48px result rows, with 16px outer padding. Additional
+results scroll within the panel.
 
-The shadow is a `MultiEffect` on a layer that contains nothing but a rounded
-black caster. Pointing `MultiEffect.source` at the panel body instead is a trap:
-it re-renders that item stretched across the effect's whole rect, which shows up
-as a large ghost panel behind the real one. A soft shadow also needs
-`blurEnabled`, which would blur the text, so isolating the caster in its own
-layer keeps the shadow soft and the content sharp and drawn only once.
+`Spotlight.qml` extends the shell's `AnimatedPopup` and owns indexing and selection;
+`SpotlightPanel.qml` supplies the search field and result list. The bar supplies
+the connected background and border. Running `quickshell -p spotlight` also starts
+the bar that hosts the launcher.
