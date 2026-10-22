@@ -1,20 +1,24 @@
 import QtQuick
 import Quickshell
 
-// Preserve the buttons' visibility API while sharing the bar's attached surface.
+// Menus attach below the bar; tools replace its contents on the same surface.
 Scope {
     id: root
 
     required property AttachedSurface popupHost
     required property Item anchorItem
     property bool visible: false
+    property bool replacesBar: false
     property bool anchorHovered: false
     property bool hold: false
+    property int animationDuration: 500
     property int panelWidth: 352
     property real panelHeight: 240
     property int padding: 16
     readonly property bool presented: visible || contentOpacity > 0.001
-        || (popupHost.currentPopup === root && popupHost.popupVisible)
+        || (replacesBar
+            ? popupHost.currentTool === root && popupHost.toolVisible
+            : popupHost.currentPopup === root && popupHost.popupVisible)
     default property alias contentData: content.data
 
     // Track ancestor geometry as song titles and tray items change row widths.
@@ -32,7 +36,7 @@ Scope {
     property real contentOpacity: visible ? 1 : 0
     Behavior on contentOpacity {
         NumberAnimation {
-            duration: root.visible ? 300 : 200
+            duration: root.animationDuration * (root.visible ? 0.6 : 0.4)
             easing.type: Easing.BezierSpline
             easing.bezierCurve: root.visible
                 ? [0.34, 0.88, 0.34, 1, 1, 1]
@@ -41,7 +45,7 @@ Scope {
     }
 
     Item {
-        parent: root.popupHost.popupContentItem
+        parent: root.replacesBar ? root.popupHost.toolContentItem : root.popupHost.popupContentItem
         anchors.fill: parent
         visible: root.presented
 
@@ -55,7 +59,8 @@ Scope {
         Item {
             id: content
             anchors.horizontalCenter: parent.horizontalCenter
-            y: root.padding - 8 * (1 - Math.min(1, Math.max(0, root.popupHost.popupReveal)))
+            y: root.replacesBar ? root.padding
+                : root.padding - 8 * (1 - Math.min(1, Math.max(0, root.popupHost.popupReveal)))
             width: root.panelWidth - root.padding * 2
             height: root.panelHeight - root.padding * 2
             opacity: root.contentOpacity

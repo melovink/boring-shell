@@ -1,6 +1,6 @@
 # Spotlight - Project Documentation
 
-A Spotlight-style launcher for applications and AppImages, attached to the
+A Spotlight-style launcher for applications and AppImages, integrated into the
 `boring` shell's top bar in the unified Quickshell process. Application icons use
 the installed `yet-another-monochrome-icon-set` theme, matching the GTK icon
 theme configured on the desktop.
@@ -58,7 +58,8 @@ usable `.DirIcon` fall back to `application-x-executable`.
 - `Up`/`Down` move without wrapping, `Home`/`End` jump to the ends, `Enter`
   launches, `Esc` or a click outside the bar dismisses.
 - Opening clears the query and refocuses the field.
-- The launcher shares the top bar's surface, blur, input mask and popup animation.
+- The bar transforms directly into the launcher in 180ms, even while hidden.
+  The launcher shares its surface, blur and input mask.
   Opening another bar menu or receiving a notification dismisses it.
 - The keyboard is released before an app maps, otherwise the new window would
   inherit focus from our exclusive-focus layer surface.
@@ -69,12 +70,14 @@ it as the `ipc show` subcommand — so prefer `toggle`.
 
 ## Layout Notes
 
-The panel opens beneath the center of the top bar, matching the wallpaper picker.
-Its width follows the bar up to 640px. Its height grows from a 40px search field
-to at most nine visible 48px result rows, with 16px outer padding. Additional
-results scroll within the panel.
+The launcher replaces the top bar's modules, matching the wallpaper picker.
+Its width is up to 400px. The borderless search row uses 16px Outfit
+text and magnifier, and stays 46px tall to match the normal bar. Up to nine visible
+48px result rows extend below a divider, with 24px of bottom clearance. Additional
+results scroll within the panel. Desktop widgets keep their normal bar placement
+as results resize the launcher.
 
 `Spotlight.qml` extends the shell's `AnimatedPopup` and owns indexing and selection;
 `SpotlightPanel.qml` supplies the search field and result list. The bar supplies
-the connected background and border. Running `quickshell -p spotlight` also starts
+the background and border. Running `quickshell -p spotlight` also starts
 the bar that hosts the launcher.

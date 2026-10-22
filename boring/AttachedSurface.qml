@@ -10,9 +10,15 @@ Item {
     property real radius: height / 2
     property var popups: []
     property bool barHovered: false
-    readonly property var requestedPopup: popups.find(p => p && p.visible) || null
+    readonly property var requestedPopup: popups.find(p => p && p.visible && !p.replacesBar) || null
+    readonly property var requestedTool: popups.find(p => p && p.visible && p.replacesBar) || null
     property var currentPopup: null
+    property var currentTool: null
+    readonly property int popupAnimationDuration: currentPopup ? currentPopup.animationDuration : 500
+    readonly property int toolAnimationDuration: currentTool ? currentTool.animationDuration : 180
     readonly property alias popupContentItem: panel
+    readonly property alias toolContentItem: toolPanel
+    readonly property bool toolVisible: requestedTool !== null || toolAnimation.running || toolReveal > 0.001
     readonly property bool popupVisible: requestedPopup !== null || revealAnimation.running || popupReveal > 0.001
     readonly property bool popupAnimating: revealAnimation.running || xAnimation.running || widthAnimation.running || heightAnimation.running
     readonly property real popupVisibleHeight: Math.max(0, popupHeight * popupReveal)
@@ -23,10 +29,30 @@ Item {
     onRequestedPopupChanged: {
         if (requestedPopup) currentPopup = requestedPopup;
     }
+    onRequestedToolChanged: {
+        if (requestedTool) currentTool = requestedTool;
+    }
+
+    // Morph the bar itself into a tool in one motion, including from off-screen.
+    // Keep the destination dimensions while closing so it can return smoothly.
+    property real toolReveal: requestedTool ? 1 : 0
+    property real toolWidth: currentTool ? currentTool.panelWidth : 0
+    property real toolHeight: currentTool ? currentTool.panelHeight : 0
+    Behavior on toolReveal {
+        NumberAnimation { id: toolAnimation; duration: root.toolAnimationDuration; easing.type: Easing.OutCubic }
+    }
+    Behavior on toolWidth {
+        enabled: root.toolReveal > 0.001
+        NumberAnimation { duration: root.toolAnimationDuration; easing.type: Easing.OutCubic }
+    }
+    Behavior on toolHeight {
+        enabled: root.toolReveal > 0.001
+        NumberAnimation { duration: root.toolAnimationDuration; easing.type: Easing.OutCubic }
+    }
 
     // Caelestia's expressive default spatial curve is shared by every menu:
     // https://github.com/caelestia-dots/shell/blob/main/plugin/src/Caelestia/Config/tokens.hpp
-    property real popupReveal: requestedPopup ? 1 : 0
+    property real popupReveal: requestedPopup && !requestedTool ? 1 : 0
     readonly property real targetPopupWidth: currentPopup ? Math.min(currentPopup.panelWidth, Math.max(0, width - (radius + 20) * 2)) : 0
     readonly property real targetPopupX: currentPopup
         ? Math.max(radius + 20, Math.min(width - radius - 20 - targetPopupWidth, currentPopup.anchorCenter - targetPopupWidth / 2)) : 0
@@ -35,19 +61,20 @@ Item {
     property real popupX: targetPopupX
 
     Behavior on popupReveal {
-        NumberAnimation { id: revealAnimation; duration: 500; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.38, 1.21, 0.22, 1, 1, 1] }
+        enabled: !root.requestedTool
+        NumberAnimation { id: revealAnimation; duration: root.popupAnimationDuration; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.38, 1.21, 0.22, 1, 1, 1] }
     }
     Behavior on popupX {
         enabled: root.popupReveal > 0.001
-        NumberAnimation { id: xAnimation; duration: 500; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.38, 1.21, 0.22, 1, 1, 1] }
+        NumberAnimation { id: xAnimation; duration: root.popupAnimationDuration; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.38, 1.21, 0.22, 1, 1, 1] }
     }
     Behavior on popupWidth {
         enabled: root.popupReveal > 0.001
-        NumberAnimation { id: widthAnimation; duration: 500; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.38, 1.21, 0.22, 1, 1, 1] }
+        NumberAnimation { id: widthAnimation; duration: root.popupAnimationDuration; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.38, 1.21, 0.22, 1, 1, 1] }
     }
     Behavior on popupHeight {
         enabled: root.popupReveal > 0.001
-        NumberAnimation { id: heightAnimation; duration: 500; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.38, 1.21, 0.22, 1, 1, 1] }
+        NumberAnimation { id: heightAnimation; duration: root.popupAnimationDuration; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.38, 1.21, 0.22, 1, 1, 1] }
     }
 
     readonly property string surfacePath: {
@@ -77,6 +104,12 @@ Item {
         ShapePath {
             fillColor: root.color
             strokeColor: root.outlineColor
+            strokeGradient: LinearGradient {
+                x1: 0; y1: 0
+                x2: 0; y2: root.height + root.popupVisibleHeight
+                GradientStop { position: 0; color: root.toolVisible ? "#00fff7ff" : root.outlineColor }
+                GradientStop { position: 1; color: root.toolVisible ? "#55e5e9f0" : root.outlineColor }
+            }
             strokeWidth: 1
             joinStyle: ShapePath.RoundJoin
             PathSvg { path: root.surfacePath }
@@ -84,6 +117,12 @@ Item {
     }
 
     Item { id: content; anchors.fill: parent }
+    Item {
+        id: toolPanel
+        anchors.fill: parent
+        visible: root.toolVisible
+        clip: true
+    }
     Item {
         id: panel
         x: root.popupX

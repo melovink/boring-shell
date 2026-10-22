@@ -18,7 +18,7 @@ Rectangle {
     radius: 12
     anchors.verticalCenter: parent.verticalCenter
 
-    property bool isActive: true
+    property bool isActive: false
 
     SvgIcon {
         anchors.centerIn: parent

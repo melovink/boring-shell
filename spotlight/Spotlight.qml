@@ -12,12 +12,14 @@ Boring.AnimatedPopup {
     property color nord4: "#D8DEE9"
     property color nord6: "#ECEFF4"
     property color nord8: "#88C0D0"
-    property string fontPrimary: "Inter"
+    property string fontPrimary: "Outfit"
+    property int searchHeight: 46
     property real surfaceOpacity: 0.78
     property var otherPopups: []
 
     hold: true
-    panelWidth: 640
+    padding: 0
+    panelWidth: 400
     panelHeight: launcherPanel.implicitHeight + padding * 2
 
     readonly property string appImageDir: (Quickshell.env("HOME") || "") + "/AppImage"
@@ -79,13 +81,6 @@ Boring.AnimatedPopup {
                 root.otherPopups[i].visible = false;
             root.scanAppImages();
         }
-    }
-
-    IpcHandler {
-        target: "spotlightWindow"
-        function toggle(): void { root.toggle(); }
-        function show(): void { root.show(); }
-        function hide(): void { root.hide(); }
     }
 
     // ---- Scanning ~/AppImage ----
@@ -261,6 +256,7 @@ Boring.AnimatedPopup {
         id: launcherPanel
         anchors.fill: parent
         shown: root.visible
+        fieldHeight: root.searchHeight
         results: root.results
         selectedIndex: root.selectedIndex
         iconRevision: root.iconRevision

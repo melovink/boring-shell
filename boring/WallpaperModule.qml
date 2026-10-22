@@ -1,6 +1,7 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
-import QtQuick.Controls.Basic
-import Qt.labs.folderlistmodel
+import Quickshell
 import Quickshell.Io
 
 Item {
@@ -11,43 +12,123 @@ Item {
     property color nord6
     property color nord8
     property real surfaceOpacity: 0.8
-    property string fontPrimary
+    property string fontPrimary: "Outfit"
+    property int searchHeight: 46
+    property int previewHeight: 176
+    property bool active: false
+    property bool shown: active
     property url wallpaperDirectory: "file:///home/melovink/Wallpapers"
+    property string thumbnailScript: Quickshell.shellPath("boring/wallpaper_thumbnails.py")
+    property var entries: []
+    property var thumbnails: ({})
+    property bool refreshPending: false
+    implicitHeight: searchHeight + 12 + previewHeight + 16
+    readonly property string directoryPath: decodeURIComponent(
+        wallpaperDirectory.toString().replace(/^file:\/\//, ""))
+    readonly property var filteredEntries: {
+        const query = wallpaperSearch.text.trim().toLowerCase();
+        return query === "" ? entries
+            : entries.filter(entry => entry.name.toLowerCase().includes(query));
+    }
     signal closeRequested()
 
-    function focusSearch(): void { wallpaperSearch.forceActiveFocus(); }
+    function focusSearch(): void { wallpaperSearch.focusSearch(); }
     function resetSearch(): void { wallpaperSearch.text = ""; }
 
-    TextField {
-        id: wallpaperSearch
-        anchors.top: parent.top
-        width: parent.width
-        height: 40
-        color: wallpaperUI.nord6
-        placeholderText: "Search wallpapers"
-        placeholderTextColor: wallpaperUI.nord4
-        font.pixelSize: 13
-        font.family: wallpaperUI.fontPrimary
-        selectByMouse: true
-        leftPadding: 12; rightPadding: 12
-        background: Rectangle {
-            radius: 14
-            color: Qt.alpha(wallpaperUI.nord1, wallpaperUI.surfaceOpacity)
-            border.width: 1
-            border.color: wallpaperSearch.activeFocus
-                ? wallpaperUI.nord8 : Qt.alpha(wallpaperUI.nord4, 0.12)
+    function applyIndex(items): void {
+        const previews = {};
+        for (const item of items) {
+            if (item.thumbnail) previews[item.path] = item.thumbnail;
         }
-        Keys.onEscapePressed: {
-            text = "";
-            wallpaperUI.closeRequested();
+        thumbnails = previews;
+        // Thumbnail updates should not rebuild the carousel or reset its scroll.
+        if (items.length !== entries.length
+            || items.some((item, i) => item.path !== entries[i].path || item.name !== entries[i].name)) {
+            entries = items;
         }
     }
 
-    FolderListModel {
-        id: folderModel
-        folder: wallpaperUI.wallpaperDirectory
-        nameFilters: wallpaperSearch.text.trim() === "" ? ["*.png", "*.jpg", "*.jpeg", "*.gif"] : ["*" + wallpaperSearch.text + "*.png", "*" + wallpaperSearch.text + "*.jpg", "*" + wallpaperSearch.text + "*.jpeg", "*" + wallpaperSearch.text + "*.gif"]
-        showDirs: false
+    function refreshThumbnails(): void {
+        if (thumbnailProcess.running) {
+            refreshPending = true;
+            return;
+        }
+        refreshPending = false;
+        thumbnailProcess.running = true;
+    }
+
+    function consumeThumbnailEvent(line): void {
+        try {
+            const event = JSON.parse(line);
+            if (event.type === "index") applyIndex(event.entries);
+            else if (event.type === "thumbnail") {
+                const previews = Object.assign({}, thumbnails);
+                previews[event.path] = event.thumbnail;
+                thumbnails = previews;
+            } else if (event.type === "error") {
+                console.warn("Wallpaper preview:", event.message);
+            }
+        } catch (error) {
+            console.warn("Invalid wallpaper preview response:", error);
+        }
+    }
+
+    // Persisted entries are ready before the picker opens or a new scan finishes.
+    FileView {
+        id: cachedIndex
+        path: wallpaperUI.directoryPath + "/thumbnail/index.json"
+        preload: true
+        printErrors: false
+        onLoaded: {
+            try {
+                const index = JSON.parse(cachedIndex.text());
+                if (index.version === 1 && Array.isArray(index.entries))
+                    wallpaperUI.applyIndex(index.entries);
+            } catch (error) {}
+        }
+    }
+
+    Process {
+        id: thumbnailProcess
+        command: ["python3", "-B", wallpaperUI.thumbnailScript, wallpaperUI.directoryPath]
+        stdout: SplitParser {
+            splitMarker: "\n"
+            onRead: line => wallpaperUI.consumeThumbnailEvent(line)
+        }
+        onExited: {
+            if (wallpaperUI.refreshPending && wallpaperUI.active)
+                Qt.callLater(wallpaperUI.refreshThumbnails);
+            else wallpaperUI.refreshPending = false;
+        }
+    }
+
+    SearchBar {
+        id: wallpaperSearch
+        anchors.top: parent.top
+        width: parent.width
+        height: wallpaperUI.searchHeight
+        placeholderText: "Search wallpapers"
+        shown: wallpaperUI.shown
+        fontPrimary: wallpaperUI.fontPrimary
+        nord1: wallpaperUI.nord1
+        nord6: wallpaperUI.nord6
+        surfaceOpacity: wallpaperUI.surfaceOpacity
+        onKeyPressed: event => {
+            if (event.key === Qt.Key_Escape) {
+                text = "";
+                wallpaperUI.closeRequested();
+                event.accepted = true;
+            }
+        }
+    }
+
+    Rectangle {
+        x: wallpaperSearch.horizontalPadding
+        y: wallpaperUI.searchHeight
+        width: Math.max(0, parent.width - x * 2)
+        height: 1
+        color: Qt.alpha("#434C5E", wallpaperUI.surfaceOpacity)
+        opacity: 0.75
     }
 
     Process {
@@ -67,12 +148,17 @@ Item {
         anchors.top: wallpaperSearch.bottom
         anchors.topMargin: 12
         anchors.bottom: parent.bottom
+        anchors.bottomMargin: 16
         anchors.left: parent.left
+        anchors.leftMargin: 16
         anchors.right: parent.right
+        anchors.rightMargin: 16
         
         orientation: ListView.Horizontal
         spacing: 12
-        model: folderModel
+        // Keep the index warm while releasing hidden image delegates.
+        model: wallpaperUI.active ? wallpaperUI.filteredEntries : null
+        cacheBuffer: 260
         clip: true
         
         boundsBehavior: Flickable.StopAtBounds
@@ -80,7 +166,11 @@ Item {
         maximumFlickVelocity: 8000
         
         delegate: Rectangle {
-            width: Math.min(260, carousel.width)
+            required property var modelData
+            id: tile
+            // Keep a stable tile width while the bar contracts; tiny delegates
+            // otherwise cause ListView to populate dozens of cached images.
+            width: 260
             height: carousel.height
             radius: 12
             color: Qt.alpha(wallpaperUI.nord1, wallpaperUI.surfaceOpacity)
@@ -88,9 +178,23 @@ Item {
             
             Image {
                 anchors.fill: parent
-                source: fileUrl
+                source: wallpaperUI.thumbnails[tile.modelData.path] || ""
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
+                sourceSize: Qt.size(520, 384)
+                cache: true
+            }
+
+            Text {
+                anchors.centerIn: parent
+                width: parent.width - 24
+                visible: !wallpaperUI.thumbnails[tile.modelData.path]
+                text: tile.modelData.name
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+                color: wallpaperUI.nord4
+                font.family: wallpaperUI.fontPrimary
+                font.pixelSize: 12
             }
             
             MouseArea {
@@ -98,7 +202,7 @@ Item {
                 enabled: !awwwProcess.running
                 cursorShape: Qt.PointingHandCursor
                 onClicked: {
-                    awwwProcess.targetFile = filePath;
+                    awwwProcess.targetFile = tile.modelData.path;
                     awwwProcess.running = true;
                 }
             }
@@ -107,8 +211,9 @@ Item {
 
     Text {
         anchors.centerIn: carousel
-        visible: folderModel.count === 0
-        text: "No wallpapers found"
+        visible: wallpaperUI.filteredEntries.length === 0
+        text: thumbnailProcess.running && wallpaperUI.entries.length === 0
+            ? "Loading wallpapers…" : "No wallpapers found"
         color: wallpaperUI.nord4
         font.family: wallpaperUI.fontPrimary; font.pixelSize: 13
     }

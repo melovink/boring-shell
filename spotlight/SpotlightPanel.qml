@@ -1,8 +1,8 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
-import QtQuick.Controls.Basic
 import Quickshell
+import "../boring" as Boring
 
 // Search and results only; the top bar supplies the surrounding surface.
 Item {
@@ -11,13 +11,14 @@ Item {
     property bool shown: false
     property int maxRows: 9
     property int rowHeight: 48
-    property int fieldHeight: 40
-    property int listSpacing: 12
+    property int fieldHeight: 46
+    property int listSpacing: 10
+    property int listBottomMargin: 24
     property color nord1: "#3B4252"
     property color nord4: "#D8DEE9"
     property color nord6: "#ECEFF4"
     property color nord8: "#88C0D0"
-    property string fontPrimary: "Inter"
+    property string fontPrimary: "Outfit"
     property real surfaceOpacity: 0.78
     property var results: []
     property int selectedIndex: 0
@@ -31,7 +32,7 @@ Item {
     signal dismiss()
 
     implicitHeight: fieldHeight + (results.length > 0
-        ? listSpacing + Math.min(results.length, maxRows) * rowHeight : 0)
+        ? listSpacing + Math.min(results.length, maxRows) * rowHeight + listBottomMargin : 0)
 
     // Icon extraction can finish while results are already being displayed.
     function iconSource(item, revision): string {
@@ -42,16 +43,9 @@ Item {
     }
 
     onShownChanged: {
-        focusTimer.stop();
         field.text = "";
         list.positionViewAtBeginning();
-        if (shown) focusTimer.restart();
-    }
-
-    Timer {
-        id: focusTimer
-        interval: 80
-        onTriggered: if (panel.shown) field.forceActiveFocus()
+        if (!shown) field.focus = false;
     }
 
     onSelectedIndexChanged: revealSelection()
@@ -61,42 +55,21 @@ Item {
         if (list.count > 0) list.positionViewAtIndex(panel.selectedIndex, ListView.Contain);
     }
 
-    TextField {
+    Boring.SearchBar {
         id: field
         anchors.top: parent.top
         width: parent.width
         height: panel.fieldHeight
-        color: panel.nord6
         placeholderText: "Search applications…"
-        placeholderTextColor: panel.nord4
-        font.family: panel.fontPrimary
-        font.pixelSize: 13
-        selectByMouse: true
-        leftPadding: 42
-        rightPadding: 12
-
-        background: Rectangle {
-            radius: 14
-            color: Qt.alpha(panel.nord1, panel.surfaceOpacity)
-            border.width: 1
-            border.color: field.activeFocus
-                ? panel.nord8 : Qt.alpha(panel.nord4, 0.12)
-        }
-
-        Image {
-            x: 12
-            anchors.verticalCenter: parent.verticalCenter
-            width: 18
-            height: 18
-            source: Qt.resolvedUrl("assets/search.svg")
-            fillMode: Image.PreserveAspectFit
-            smooth: true
-            opacity: field.text.length === 0 ? 0.5 : 0.85
-        }
+        shown: panel.shown
+        fontPrimary: panel.fontPrimary
+        nord1: panel.nord1
+        nord6: panel.nord6
+        surfaceOpacity: panel.surfaceOpacity
 
         onTextChanged: panel.queryEdited(text)
 
-        Keys.onPressed: event => {
+        onKeyPressed: event => {
             if (event.key === Qt.Key_Escape) {
                 panel.dismiss();
                 event.accepted = true;
@@ -119,6 +92,16 @@ Item {
         }
     }
 
+    Rectangle {
+        x: field.horizontalPadding
+        y: panel.fieldHeight
+        width: Math.max(0, parent.width - x * 2)
+        height: 1
+        color: Qt.alpha("#434C5E", panel.surfaceOpacity)
+        opacity: 0.75
+        visible: panel.results.length > 0
+    }
+
     ListView {
         id: list
         anchors.top: field.bottom
@@ -126,6 +109,7 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
+        anchors.bottomMargin: panel.listBottomMargin
         visible: panel.results.length > 0
         model: panel.results
         clip: true
@@ -141,7 +125,6 @@ Item {
             item: modelData
             selected: index === panel.selectedIndex
             iconSource: panel.iconSource(modelData, panel.iconRevision)
-            horizontalMargin: 0
             nord1: panel.nord1
             nord6: panel.nord6
             surfaceOpacity: panel.surfaceOpacity

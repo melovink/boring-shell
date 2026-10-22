@@ -12,23 +12,44 @@ PanelWindow {
     property var calendar: null
     property int cellSize: 7
     property int cellSpacing: 2
+    property int padding: 16
     property int edgeMargin: 12
     property int topMargin: 12
     property int refreshInterval: 30 * 60 * 1000
+    property color nord0: "#2E3440"
+    property color nord4: "#D8DEE9"
+    property real surfaceOpacity: 0.78
     readonly property int cellPitch: cellSize + cellSpacing
     readonly property int weeksToShow: 10
     readonly property var levelColors: ["#3B4252", "#4C566A", "#5E81AC", "#81A1C1", "#88C0D0"]
+    readonly property int gridWidth: weeksToShow * cellPitch - cellSpacing
+    readonly property int gridHeight: 7 * cellPitch - cellSpacing
 
     anchors { top: true; left: true }
     margins.top: github.topMargin
     margins.left: github.edgeMargin
-    implicitWidth: weeksToShow * cellPitch - cellSpacing
-    implicitHeight: 7 * cellPitch - cellSpacing
+    implicitWidth: github.gridWidth + github.padding * 2
+    implicitHeight: github.gridHeight + github.padding * 2
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
     WlrLayershell.namespace: "boring-github-contributions"
     WlrLayershell.layer: WlrLayer.Bottom
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
+    mask: Region {}
+
+    BackgroundEffect.blurRegion: Region {
+        item: surface
+        radius: surface.radius
+    }
+
+    Rectangle {
+        id: surface
+        anchors.fill: parent
+        radius: 24
+        color: Qt.alpha(github.nord0, github.surfaceOpacity)
+        border.width: 1
+        border.color: Qt.alpha(github.nord4, 0.12)
+    }
 
     function refresh(): void {
         if (!contributionsProcess.running) contributionsProcess.running = true;
@@ -77,8 +98,8 @@ PanelWindow {
                 return github.calendar.cells[firstWeek * 7 + index] ?? null;
             }
 
-            x: Math.floor(index / 7) * github.cellPitch
-            y: (index % 7) * github.cellPitch
+            x: github.padding + Math.floor(index / 7) * github.cellPitch
+            y: github.padding + (index % 7) * github.cellPitch
             width: github.cellSize
             height: github.cellSize
             radius: 1.5

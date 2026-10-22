@@ -34,6 +34,7 @@ Item {
 
     property string fontPrimary: "Inter"
     property string fontMono: "JetBrains Mono"
+    readonly property int barRowHeight: 46
 
     property alias wallpaperPickerVisible: wallpaperPopup.visible
 
@@ -57,6 +58,10 @@ Item {
     // The floating clock is visible by default, and can be hidden from the
     // top-right controls bar.
     property bool floatingClockEnabled: true
+
+    property bool systemMonitorEnabled: true
+    readonly property int desktopWidgetTopMargin: Math.round(
+        Math.max(12, dynamicIsland.barTopMargin + dynamicIsland.barHeight + 12))
 
     // Public GitHub account shown by the desktop contribution grid.
     property string githubUsername: "melovink"
@@ -146,8 +151,8 @@ Item {
         function showWallpaper(): void {
             root.wallpaperPickerVisible = !root.wallpaperPickerVisible;
         }
-        function toggleGif(): void {
-            gifModule.isActive = !gifModule.isActive;
+        function toggleWidgets(): void {
+            root.systemMonitorEnabled = !root.systemMonitorEnabled;
         }
         function holdBar(): void {
             root.barHeld = true;
@@ -158,6 +163,14 @@ Item {
         function toggleBar(): void {
             root.barHeld = !root.barHeld;
         }
+    }
+
+    // Keep keyboard IPC independent of the popup's visual and mapped state.
+    IpcHandler {
+        target: "spotlightWindow"
+        function toggle(): void { spotlightPopup.toggle(); }
+        function show(): void { spotlightPopup.show(); }
+        function hide(): void { spotlightPopup.hide(); }
     }
 
     // Data Properties
@@ -466,6 +479,9 @@ Item {
             onRead: line => {
                 var l = line.trim();
                 if (l.startsWith("activewindow>>")) {
+                    // Keyboard focus moving to our layer clears the active app.
+                    // Only a real application gaining focus should dismiss menus.
+                    if (l === "activewindow>>," || l === "activewindow>>") return;
                     calPopup.visible = false;
                     volPopup.visible = false;
                     netPopup.visible = false;
@@ -494,15 +510,60 @@ Item {
     // Floating centered clock (stays behind all windows)
     FloatingClock { visible: root.floatingClockEnabled }
 
+    SystemMonitor {
+        id: systemMonitor
+        visible: root.systemMonitorEnabled
+        topMargin: root.desktopWidgetTopMargin
+        nord0: root.nord0
+        nord4: root.nord4
+        nord6: root.nord6
+        nord8: root.nord8
+        nord9: root.nord9
+        surfaceOpacity: root.surfaceOpacity
+        fontPrimary: root.fontPrimary
+        fontMono: root.fontMono
+    }
+
     GithubContributions {
         visible: root.githubContributionsEnabled
         username: root.githubUsername
+        nord0: root.nord0
+        nord4: root.nord4
+        surfaceOpacity: root.surfaceOpacity
+        topMargin: systemMonitor.visible
+            ? systemMonitor.topMargin + systemMonitor.height + 12
+            : root.desktopWidgetTopMargin
     }
 
     PanelWindow {
         id: dynamicIsland
+        // Clear compositor blur before unmapping the transparent layer.
+        readonly property bool needsSurface: dynamicIsland.notifActive || dynamicIsland.isExpanded || background.toolVisible
+            || !dynamicIsland.barHideComplete || background.popupVisible
+            || background.y + background.height > 0
+        property bool surfaceMapped: false
+        visible: surfaceMapped
+
+        function syncSurfaceVisibility(): void {
+            if (needsSurface) {
+                blurTeardownTimer.stop();
+                surfaceMapped = true;
+            } else if (surfaceMapped) {
+                blurTeardownTimer.restart();
+            }
+        }
+
+        onNeedsSurfaceChanged: syncSurfaceVisibility()
+        Component.onCompleted: syncSurfaceVisibility()
+
+        Timer {
+            id: blurTeardownTimer
+            interval: 32
+            onTriggered: if (!dynamicIsland.needsSurface) dynamicIsland.surfaceMapped = false
+        }
+
         anchors { top: true; left: true; right: true; }
-        // One fixed surface holds the bar and attached menus. The mask passes
+        // One fixed surface holds the bar, its tools and attached menus. The mask passes
         // input through everywhere else without resizing the window each frame.
         height: screen.height
         // Reserve only the visible portion of the expanded bar so application
@@ -511,7 +572,7 @@ Item {
         readonly property int windowMargin: 8
         readonly property int hiddenTopMargin: -56
         readonly property int revealDelay: 280
-        readonly property int expandedExclusiveZone: edgeMargin + 46
+        readonly property int expandedExclusiveZone: edgeMargin + root.barRowHeight
         exclusiveZone: dynamicIsland.notifActive
             ? dynamicIsland.notificationExclusiveZone
             : ((dynamicIsland.isExpanded || !dynamicIsland.barHideComplete)
@@ -519,13 +580,19 @@ Item {
                 : 0)
         color: "transparent"
         WlrLayershell.layer: WlrLayer.Overlay
+        // The layer owns keyboard focus while a launcher or keyboard menu is open.
+        // A second HyprlandFocusGrab clears as soon as this already-mapped surface focuses.
         WlrLayershell.keyboardFocus: spotlightPopup.visible || wallpaperPopup.visible || netPopup.selectedWifi !== null
             ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
-        // Keep blur active as the attached region follows popup animations.
-        BackgroundEffect.blurRegion: AttachedRegion {
+        // An explicit null removes the effect. Keep the window mapped for the
+        // following frames so the compositor commits that removal before closing.
+        readonly property bool blurActive: needsSurface && (blurReady || background.toolVisible)
+            && background.y + background.height + background.popupVisibleHeight > 0
+        BackgroundEffect.blurRegion: dynamicIsland.blurActive ? barBlurRegion : null
+        AttachedRegion {
+            id: barBlurRegion
             surface: background
-            active: dynamicIsland.blurReady
         }
 
         mask: AttachedRegion { surface: background }
@@ -534,16 +601,31 @@ Item {
         // it never appears in the 120px collapsed sliver. Two thirds of the
         // expanded bar, so the bar grows into the card rather than jumping.
         readonly property bool notifActive: root.activeNotification !== null
-        property bool isExpanded: root.barHeld || hoverHandler.hovered || background.popupVisible
+        property bool isExpanded: root.barHeld || (hoverHandler.hovered && !background.toolVisible)
+            || background.popupVisible
         property bool barRevealComplete: false
         property bool barHideComplete: true
-        readonly property real targetHeight: notifActive ? 76 : 46
+        readonly property real targetHeight: notifActive ? 76 : root.barRowHeight
         property real targetWidth: notifActive ? 520
             : (barRevealComplete ? expandedModules.implicitWidth + 40 : 120)
         readonly property real targetTopMargin: notifActive
             ? edgeMargin
             : ((isExpanded || !barHideComplete) ? edgeMargin : hiddenTopMargin)
         property bool blurReady: false
+
+        // Preserve the usual bar motion independently of the direct tool morph.
+        property real barTopMargin: targetTopMargin
+        property real barWidth: targetWidth
+        property real barHeight: targetHeight
+        Behavior on barTopMargin {
+            SpringAnimation { spring: root.rubberSpring; damping: root.rubberDamping; mass: 1; epsilon: 0.25 }
+        }
+        Behavior on barWidth {
+            SpringAnimation { spring: root.rubberSpring; damping: root.rubberDamping; mass: 1; epsilon: 0.25 }
+        }
+        Behavior on barHeight {
+            SpringAnimation { spring: root.rubberSpring; damping: root.rubberDamping; mass: 1; epsilon: 0.25 }
+        }
 
         function updateBlurReady(): void {
             var destinationReady = dynamicIsland.notifActive
@@ -596,42 +678,16 @@ Item {
         AttachedSurface {
             id: background
             anchors.top: parent.top
-            anchors.topMargin: dynamicIsland.targetTopMargin
-
-            Behavior on anchors.topMargin {
-                SpringAnimation {
-                    spring: root.rubberSpring
-                    damping: root.rubberDamping
-                    mass: 1
-                    epsilon: 0.25
-                }
-            }
+            anchors.topMargin: dynamicIsland.barTopMargin * (1 - toolReveal)
+                + dynamicIsland.edgeMargin * toolReveal
             anchors.horizontalCenter: parent.horizontalCenter
-            width: dynamicIsland.targetWidth
-            height: dynamicIsland.targetHeight
+            width: dynamicIsland.barWidth * (1 - toolReveal) + toolWidth * toolReveal
+            height: dynamicIsland.barHeight * (1 - toolReveal) + toolHeight * toolReveal
             color: Qt.alpha(root.nord0, root.surfaceOpacity)
             outlineColor: Qt.alpha(root.nord4, 0.12)
-            radius: height / 2
+            radius: height / 2 * (1 - toolReveal) + Math.min(45, height / 2) * toolReveal
             popups: [calPopup, volPopup, netPopup, pwrPopup, mpdPopup, wallpaperPopup, spotlightPopup, trayModule.popup]
             barHovered: hoverHandler.hovered
-
-            Behavior on width {
-                SpringAnimation {
-                    spring: root.rubberSpring
-                    damping: root.rubberDamping
-                    mass: 1
-                    epsilon: 0.25
-                }
-            }
-
-            Behavior on height {
-                SpringAnimation {
-                    spring: root.rubberSpring
-                    damping: root.rubberDamping
-                    mass: 1
-                    epsilon: 0.25
-                }
-            }
 
             onXChanged: dynamicIsland.updateBlurReady()
             onYChanged: dynamicIsland.updateBlurReady()
@@ -672,10 +728,13 @@ Item {
                 anchors.centerIn: parent
                 anchors.verticalCenterOffset: 0
                 spacing: 16
-                opacity: dynamicIsland.notifActive ? 0.0 : (dynamicIsland.barRevealComplete ? 1.0 : 0.0)
+                opacity: dynamicIsland.notifActive ? 0.0
+                    : (dynamicIsland.barRevealComplete ? 1.0 - background.toolReveal : 0.0)
                 visible: opacity > 0
+                enabled: !background.toolVisible
 
                 Behavior on opacity {
+                    enabled: !background.toolVisible
                     NumberAnimation { duration: 220; easing.type: Easing.OutQuint }
                 }
 
@@ -780,10 +839,14 @@ Item {
                 color: root.nord6
                 font.family: "Outfit"
                 font.pixelSize: 14
-                opacity: dynamicIsland.notifActive ? 0.0 : (dynamicIsland.barRevealComplete ? 0.0 : 1.0)
+                opacity: dynamicIsland.notifActive ? 0.0
+                    : (dynamicIsland.barRevealComplete ? 0.0 : 1.0 - background.toolReveal)
                 visible: opacity > 0
 
-                Behavior on opacity { NumberAnimation { duration: 190; easing.type: Easing.OutQuint } }
+                Behavior on opacity {
+                    enabled: !background.toolVisible
+                    NumberAnimation { duration: 190; easing.type: Easing.OutQuint }
+                }
             }
         }
         
@@ -861,12 +924,11 @@ Item {
                 anchors.centerIn: parent
                 spacing: 8
 
-                GifModule {
-                    id: gifModule
+                SystemMonitorToggleModule {
                     nord1: root.nord1
-                    nord6: root.nord6
                     surfaceOpacity: root.surfaceOpacity
-                    onToggled: gifModule.isActive = !gifModule.isActive
+                    monitorEnabled: root.systemMonitorEnabled
+                    onToggled: root.systemMonitorEnabled = !root.systemMonitorEnabled
                 }
 
                 NotifMuteModule {
@@ -1688,42 +1750,43 @@ Item {
         }
     }
 
-    // Alt+Space opens the launcher on the same attached surface as the menus.
+    // Keyboard tools replace the bar directly, without first revealing its modules.
     Launcher.Spotlight {
         id: spotlightPopup
+        animationDuration: 180
+        replacesBar: true
         popupHost: background
         anchorItem: background
         anchorHovered: background.barHovered
-        panelWidth: Math.min(640, Math.max(padding * 2,
-            background.width - (background.radius + 20) * 2))
+        panelWidth: Math.min(400, Math.max(160,
+            dynamicIsland.screen.width - dynamicIsland.windowMargin * 2))
+        searchHeight: root.barRowHeight
         nord1: root.nord1
         nord4: root.nord4
         nord6: root.nord6
         nord8: root.nord8
         surfaceOpacity: root.surfaceOpacity
-        fontPrimary: root.fontPrimary
+        fontPrimary: "Outfit"
         otherPopups: [calPopup, volPopup, netPopup, pwrPopup, mpdPopup, wallpaperPopup, trayModule.popup]
     }
 
-    HyprlandFocusGrab {
-        windows: [dynamicIsland]
-        active: spotlightPopup.visible
-        onCleared: spotlightPopup.visible = false
-    }
-
-    // The wallpaper keybind opens a picker attached to the center of the top bar.
+    // The wallpaper keybind turns the same surface into the picker.
     AnimatedPopup {
         id: wallpaperPopup
+        animationDuration: 180
+        replacesBar: true
         popupHost: background
         anchorItem: background
         anchorHovered: background.barHovered
         hold: true
-        panelWidth: Math.min(640, Math.max(padding * 2,
-            background.width - (background.radius + 20) * 2))
-        panelHeight: 252
+        padding: 0
+        panelWidth: Math.min(580, Math.max(160,
+            dynamicIsland.screen.width - dynamicIsland.windowMargin * 2))
+        panelHeight: wallpaperPicker.implicitHeight
 
         onVisibleChanged: {
             if (visible) {
+                wallpaperPicker.refreshThumbnails();
                 var otherPopups = [calPopup, volPopup, netPopup, pwrPopup, mpdPopup, spotlightPopup, trayModule.popup];
                 for (var i = 0; i < otherPopups.length; i++) otherPopups[i].visible = false;
                 Qt.callLater(function() {
@@ -1736,12 +1799,15 @@ Item {
 
         WallpaperModule {
             id: wallpaperPicker
+            active: wallpaperPopup.presented
+            shown: wallpaperPopup.visible
+            searchHeight: root.barRowHeight
             nord1: root.nord1
             nord4: root.nord4
             nord6: root.nord6
             nord8: root.nord8
             surfaceOpacity: root.surfaceOpacity
-            fontPrimary: root.fontPrimary
+            fontPrimary: "Outfit"
             onCloseRequested: wallpaperPopup.visible = false
         }
     }
