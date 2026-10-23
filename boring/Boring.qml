@@ -61,7 +61,7 @@ Item {
 
     property bool desktopWidgetsEnabled: true
     readonly property int desktopWidgetTopMargin: Math.round(
-        Math.max(12, dynamicIsland.barTopMargin + dynamicIsland.barHeight + 12))
+        Math.max(12, dynamicIsland.widgetBarTopMargin + root.barRowHeight + 12))
 
     // Public GitHub account shown by the desktop contribution grid.
     property string githubUsername: "melovink"
@@ -625,12 +625,20 @@ Item {
         readonly property real targetTopMargin: notifActive
             ? edgeMargin
             : ((isExpanded || !barHideComplete) ? edgeMargin : hiddenTopMargin)
+        // Desktop widgets follow the regular bar's show/hide state, but ignore
+        // notification geometry so a card never pushes them down.
+        readonly property real widgetTargetTopMargin: (isExpanded || !barHideComplete)
+            ? edgeMargin : hiddenTopMargin
+        property real widgetBarTopMargin: widgetTargetTopMargin
         property bool blurReady: false
 
         // Preserve the usual bar motion independently of the direct tool morph.
         property real barTopMargin: targetTopMargin
         property real barWidth: targetWidth
         property real barHeight: targetHeight
+        Behavior on widgetBarTopMargin {
+            SpringAnimation { spring: root.rubberSpring; damping: root.rubberDamping; mass: 1; epsilon: 0.25 }
+        }
         Behavior on barTopMargin {
             SpringAnimation { spring: root.rubberSpring; damping: root.rubberDamping; mass: 1; epsilon: 0.25 }
         }
