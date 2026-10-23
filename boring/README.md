@@ -46,14 +46,10 @@ text, padding and corner radius. Set `sizeScale` on `SystemMonitor` to adjust th
 The widget is inset 12px from the screen edges while the bar is hidden. It follows
 the normal bar's animation downward to keep 12px of clearance when it appears.
 Launcher results and wallpaper previews do not change this position. The
-GitHub contribution grid sits 12px below it and moves with it. Set
-`systemMonitorEnabled` on `Boring` to hide the meters; the grid then uses the top
-position with the same bar clearance.
-
-The first top-right control toggles the CPU/RAM and image widgets, replacing the
-GIF control.
-The clock and GitHub grid retain their separate toggles. The GIF overlay is off
-by default and is no longer loaded by the shell.
+GitHub contribution grid sits 12px below it and moves with it. The first
+top-right widget control toggles the meters, image, and contribution grid
+together; the clock keeps its separate toggle. The GIF overlay is off by default
+and is no longer loaded by the shell.
 
 `SystemMetrics.qml` reads `/proc/stat` and `/proc/meminfo` directly every 2000ms,
 without spawning polling processes. CPU usage is calculated between consecutive

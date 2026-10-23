@@ -59,13 +59,12 @@ Item {
     // top-right controls bar.
     property bool floatingClockEnabled: true
 
-    property bool systemMonitorEnabled: true
+    property bool desktopWidgetsEnabled: true
     readonly property int desktopWidgetTopMargin: Math.round(
         Math.max(12, dynamicIsland.barTopMargin + dynamicIsland.barHeight + 12))
 
     // Public GitHub account shown by the desktop contribution grid.
     property string githubUsername: "melovink"
-    property bool githubContributionsEnabled: true
 
     NotificationServer {
         onNotification: n => root.showNotification(n)
@@ -152,7 +151,7 @@ Item {
             root.wallpaperPickerVisible = !root.wallpaperPickerVisible;
         }
         function toggleWidgets(): void {
-            root.systemMonitorEnabled = !root.systemMonitorEnabled;
+            root.desktopWidgetsEnabled = !root.desktopWidgetsEnabled;
         }
         function holdBar(): void {
             root.barHeld = true;
@@ -512,7 +511,7 @@ Item {
 
     SystemMonitor {
         id: systemMonitor
-        visible: root.systemMonitorEnabled
+        visible: root.desktopWidgetsEnabled
         topMargin: root.desktopWidgetTopMargin
         nord0: root.nord0
         nord4: root.nord4
@@ -526,7 +525,7 @@ Item {
 
     GithubContributions {
         id: githubContributions
-        visible: root.githubContributionsEnabled
+        visible: root.desktopWidgetsEnabled
         username: root.githubUsername
         nord0: root.nord0
         nord4: root.nord4
@@ -537,7 +536,7 @@ Item {
     }
 
     ImageWidget {
-        visible: root.systemMonitorEnabled
+        visible: root.desktopWidgetsEnabled
         sideLength: githubContributions.implicitHeight
         cornerRadius: 24 * githubContributions.sizeScale
         borderWidth: githubContributions.sizeScale
@@ -761,7 +760,7 @@ Item {
                     rubberSpring: root.rubberSpring
                     rubberDamping: root.rubberDamping
                 }
-                
+
                 // MPD
                 MpdModule {
                     id: mpdRect
@@ -881,7 +880,7 @@ Item {
     PanelWindow {
         id: cornerControls
         anchors { top: true; right: true }
-        width: 220
+        width: 172
         height: 64
         color: "transparent"
         exclusionMode: ExclusionMode.Ignore
@@ -917,7 +916,7 @@ Item {
             id: cornerBackground
             x: cornerControls.isExpanded ? cornerControls.expandedX : cornerControls.collapsedX
             y: 8
-            width: 208
+            width: 160
             height: 46
             color: Qt.alpha(root.nord0, root.surfaceOpacity)
             radius: height / 2
@@ -942,8 +941,8 @@ Item {
                 SystemMonitorToggleModule {
                     nord1: root.nord1
                     surfaceOpacity: root.surfaceOpacity
-                    monitorEnabled: root.systemMonitorEnabled
-                    onToggled: root.systemMonitorEnabled = !root.systemMonitorEnabled
+                    widgetsEnabled: root.desktopWidgetsEnabled
+                    onToggled: root.desktopWidgetsEnabled = !root.desktopWidgetsEnabled
                 }
 
                 NotifMuteModule {
@@ -958,13 +957,6 @@ Item {
                     surfaceOpacity: root.surfaceOpacity
                     clockEnabled: root.floatingClockEnabled
                     onToggled: root.floatingClockEnabled = !root.floatingClockEnabled
-                }
-
-                GithubContributionsToggleModule {
-                    nord1: root.nord1
-                    surfaceOpacity: root.surfaceOpacity
-                    contributionsEnabled: root.githubContributionsEnabled
-                    onToggled: root.githubContributionsEnabled = !root.githubContributionsEnabled
                 }
             }
         }

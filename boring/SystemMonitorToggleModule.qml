@@ -6,7 +6,7 @@ Rectangle {
 
     property color nord1
     property real surfaceOpacity: 0.8
-    property bool monitorEnabled: true
+    property bool widgetsEnabled: true
 
     signal toggled()
 
@@ -20,7 +20,7 @@ Rectangle {
         anchors.centerIn: parent
         width: 16
         height: 16
-        iconColor: root.monitorEnabled ? "#FFFFFF" : "#FF0000"
+        iconColor: root.widgetsEnabled ? "#FFFFFF" : "#FF0000"
         path: "M3 3h18v14H3z M8 21h8 M12 17v4 M5 10h3l2-4 4 8 2-4h3"
     }
 
