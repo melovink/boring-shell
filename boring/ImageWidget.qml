@@ -8,7 +8,7 @@ import Quickshell.Wayland
 PanelWindow {
     id: root
 
-    property url imageSource: Qt.resolvedUrl("../forDisplayOnly/dracaene.jpg")
+    property url imageSource: Qt.resolvedUrl("../forDisplayOnly/dialyn.jpeg")
     property int sideLength: 112
     property real cornerRadius: 24
     property real borderWidth: 1
