@@ -24,7 +24,7 @@ PanelWindow {
     readonly property real scaledCellSize: cellSize * sizeScale
     readonly property real scaledPadding: padding * sizeScale
     readonly property int weeksToShow: 10
-    readonly property var levelColors: ["#3B4252", "#4C566A", "#5E81AC", "#81A1C1", "#88C0D0"]
+    readonly property var levelColors: ["#3B4252", "#4B596E", "#5C6C84", "#7787A6", "#A6B1C4"]
     readonly property real gridWidth: weeksToShow * cellPitch - cellSpacing * sizeScale
     readonly property real gridHeight: 7 * cellPitch - cellSpacing * sizeScale
 
@@ -45,13 +45,20 @@ PanelWindow {
         radius: surface.radius
     }
 
-    Rectangle {
+    GlassSurface {
         id: surface
         anchors.fill: parent
         radius: 24 * github.sizeScale
-        color: Qt.alpha(github.nord0, github.surfaceOpacity)
-        border.width: github.sizeScale
-        border.color: Qt.alpha(github.nord4, 0.12)
+        borderWidth: github.sizeScale
+        fillStart: "#FF2E3440"
+        fillEnd: "#737787A6"
+        rimTint: github.nord4
+        lightAngle: 180
+        lightIntensity: 80
+        refraction: 80
+        depth: 20
+        dispersion: 50
+        splay: 0
     }
 
     function refresh(): void {

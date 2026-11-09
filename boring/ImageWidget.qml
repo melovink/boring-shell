@@ -30,11 +30,28 @@ PanelWindow {
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     mask: Region {}
 
+    BackgroundEffect.blurRegion: Region {
+        item: surface
+        radius: surface.radius
+    }
+
     Rectangle {
         id: surface
         anchors.fill: parent
         radius: root.cornerRadius
-        color: Qt.alpha(root.nord0, root.surfaceOpacity)
+        gradient: Gradient {
+            orientation: Gradient.Vertical
+            GradientStop { position: 0; color: "#FF2E3440" }
+            GradientStop { position: 1; color: "#737787A6" }
+        }
+        layer.enabled: true
+        layer.effect: MultiEffect {
+            shadowEnabled: true
+            shadowColor: "#40000000"
+            blurMax: 8
+            shadowBlur: 1.0
+            shadowVerticalOffset: 4
+        }
 
         Image {
             id: photo
@@ -64,9 +81,20 @@ PanelWindow {
         Rectangle {
             anchors.fill: parent
             radius: surface.radius
+            gradient: Gradient {
+                orientation: Gradient.Vertical
+                GradientStop { position: 0; color: "#20FFFFFF" }
+                GradientStop { position: 0.38; color: "#08FFFFFF" }
+                GradientStop { position: 1; color: "#167B95C0" }
+            }
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            radius: surface.radius
             color: "transparent"
             border.width: root.borderWidth
-            border.color: Qt.alpha(root.nord4, 0.12)
+            border.color: Qt.alpha(root.nord4, 0.22)
         }
     }
 }

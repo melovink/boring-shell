@@ -19,7 +19,8 @@ Boring.AnimatedPopup {
 
     hold: true
     padding: 0
-    panelWidth: 400
+    panelRadius: 28
+    panelWidth: 268
     panelHeight: launcherPanel.implicitHeight + padding * 2
 
     readonly property string appImageDir: (Quickshell.env("HOME") || "") + "/AppImage"

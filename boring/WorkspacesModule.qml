@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import Quickshell.Hyprland
 
@@ -29,8 +31,9 @@ Item {
         }
     }
 
-    implicitWidth: workspaceDots.implicitWidth
-    implicitHeight: workspaceDots.implicitHeight
+    implicitWidth: workspaceRepeater.count > 0
+        ? workspaceRepeater.count * workspacePitch - workspaceSpacing : 0
+    implicitHeight: dotSize
     width: implicitWidth
     height: implicitHeight
     anchors.verticalCenter: parent.verticalCenter
@@ -40,9 +43,12 @@ Item {
         spacing: root.workspaceSpacing
 
         Repeater {
+            id: workspaceRepeater
             model: Hyprland.workspaces
 
             Item {
+                id: workspaceDot
+                required property var modelData
                 width: root.dotSize
                 height: root.dotSize
 
@@ -51,14 +57,14 @@ Item {
                     width: root.dotSize
                     height: root.dotSize
                     radius: root.dotSize / 2
-                    color: modelData.focused
+                    color: workspaceDot.modelData.focused
                         ? "transparent"
-                        : (modelData.active ? root.nord4 : root.nord1)
+                        : (workspaceDot.modelData.active ? root.nord4 : root.nord1)
                 }
 
                 MouseArea {
                     anchors.fill: parent
-                    onClicked: modelData.activate()
+                    onClicked: workspaceDot.modelData.activate()
                 }
             }
         }

@@ -9,11 +9,11 @@ Item {
     id: panel
 
     property bool shown: false
-    property int maxRows: 9
-    property int rowHeight: 48
+    property int maxRows: 6
+    property int rowHeight: 29
     property int fieldHeight: 46
-    property int listSpacing: 10
-    property int listBottomMargin: 24
+    property int listSpacing: 4
+    property int listBottomMargin: 14
     property color nord1: "#3B4252"
     property color nord4: "#D8DEE9"
     property color nord6: "#ECEFF4"
@@ -60,7 +60,7 @@ Item {
         anchors.top: parent.top
         width: parent.width
         height: panel.fieldHeight
-        placeholderText: "Search applications…"
+        placeholderText: "Search"
         shown: panel.shown
         fontPrimary: panel.fontPrimary
         nord1: panel.nord1

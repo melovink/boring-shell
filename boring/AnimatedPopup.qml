@@ -14,6 +14,7 @@ Scope {
     property int animationDuration: 500
     property int panelWidth: 352
     property real panelHeight: 240
+    property real panelRadius: 32
     property int padding: 16
     readonly property bool presented: visible || contentOpacity > 0.001
         || (replacesBar

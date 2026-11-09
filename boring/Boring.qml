@@ -34,7 +34,9 @@ Item {
 
     property string fontPrimary: "Inter"
     property string fontMono: "JetBrains Mono"
-    readonly property int barRowHeight: 46
+    readonly property real barRowHeight: 45.5
+    readonly property real barHorizontalPadding: 20
+    readonly property real barModuleGap: 16
 
     property alias wallpaperPickerVisible: wallpaperPopup.visible
 
@@ -50,13 +52,12 @@ Item {
     property double notifDeadline: 0
     property bool notifHovered: false
     property int notifRevision: 0
-    // Transient expanded state driven by holding the peek key. Kept separate from
-    // the hover-driven expansion so the bind does not have to steal the pointer.
+    // Persistent visibility state for the compact top bar.
     property bool barHeld: false
-    // Do-not-disturb, toggled from the bell button in the corner controls.
+    // Do-not-disturb, toggled from the quick settings panel.
     property bool notifMuted: false
     // The floating clock is visible by default, and can be hidden from the
-    // top-right controls bar.
+    // quick settings panel.
     property bool floatingClockEnabled: true
 
     property bool desktopWidgetsEnabled: true
@@ -86,14 +87,7 @@ Item {
 
         // The card replaces the modules the popups are anchored to, so leaving them
         // open would strand a floating menu against a hidden anchor.
-        calPopup.visible = false;
-        volPopup.visible = false;
-        netPopup.visible = false;
-        pwrPopup.visible = false;
-        mpdPopup.visible = false;
-        wallpaperPopup.visible = false;
-        spotlightPopup.visible = false;
-        if (trayModule && trayModule.popup) trayModule.popup.visible = false;
+        root.closeTopbarPopups();
 
         root.releaseNotification();
 
@@ -119,6 +113,47 @@ Item {
         var n = root.activeNotification;
         root.activeNotification = null;
         if (n) n.tracked = false;
+    }
+
+    function closeTopbarPopups(): void {
+        var popups = [calPopup, volPopup, netPopup, pwrPopup, mpdPopup,
+            wallpaperPopup, spotlightPopup, controlPanelPopup];
+        for (var i = 0; i < popups.length; i++) popups[i].visible = false;
+    }
+
+    function showTopbarTool(tool): void {
+        root.closeTopbarPopups();
+        tool.visible = true;
+    }
+
+    function toggleTopbarTool(tool): void {
+        var shouldShow = !tool.visible;
+        root.closeTopbarPopups();
+        if (shouldShow) tool.visible = true;
+    }
+
+    function showTopbarPopup(popup): void {
+        root.closeTopbarPopups();
+        popup.visible = true;
+    }
+
+    function toggleTopbarPopup(popup): void {
+        var shouldShow = !popup.visible;
+        root.closeTopbarPopups();
+        if (shouldShow) popup.visible = true;
+    }
+
+    function setBrightness(value: real): void {
+        root.brightnessLevel = Math.max(0, Math.min(1, value));
+        root.pendingBrightnessPercent = Math.round(root.brightnessLevel * 100);
+        root.flushBrightness();
+    }
+
+    function flushBrightness(): void {
+        if (brightnessSetProc.running || root.pendingBrightnessPercent < 0) return;
+        brightnessSetProc.targetPercent = root.pendingBrightnessPercent;
+        root.pendingBrightnessPercent = -1;
+        brightnessSetProc.running = true;
     }
 
     // The sender retracted it, or the server expired it: drop the card.
@@ -148,7 +183,7 @@ Item {
     IpcHandler {
         target: "bottomBar"
         function showWallpaper(): void {
-            root.wallpaperPickerVisible = !root.wallpaperPickerVisible;
+            root.toggleTopbarTool(wallpaperPopup);
         }
         function toggleWidgets(): void {
             root.desktopWidgetsEnabled = !root.desktopWidgetsEnabled;
@@ -162,13 +197,50 @@ Item {
         function toggleBar(): void {
             root.barHeld = !root.barHeld;
         }
+        function showControlPanel(): void { root.showTopbarTool(controlPanelPopup); }
+        function toggleControlPanel(): void { root.toggleTopbarTool(controlPanelPopup); }
+    }
+
+    IpcHandler {
+        target: "topBar"
+        function showMusic(): void { root.showTopbarTool(mpdPopup); }
+        function toggleMusic(): void { root.toggleTopbarTool(mpdPopup); }
+        function hideMusic(): void { mpdPopup.visible = false; }
+        function showControlPanel(): void { root.showTopbarTool(controlPanelPopup); }
+        function toggleControlPanel(): void { root.toggleTopbarTool(controlPanelPopup); }
+        function hideControlPanel(): void { controlPanelPopup.visible = false; }
+        function showCalendar(): void { root.showTopbarPopup(calPopup); }
+        function toggleCalendar(): void { root.toggleTopbarPopup(calPopup); }
+        function showVolume(): void { root.showTopbarPopup(volPopup); }
+        function toggleVolume(): void { root.toggleTopbarPopup(volPopup); }
+        function showNetwork(): void { root.showTopbarPopup(netPopup); }
+        function toggleNetwork(): void { root.toggleTopbarPopup(netPopup); }
+        function showWallpaper(): void { root.showTopbarTool(wallpaperPopup); }
+        function toggleWallpaper(): void { root.toggleTopbarTool(wallpaperPopup); }
+        function hideWallpaper(): void { wallpaperPopup.visible = false; }
+        function toggleWidgets(): void { root.desktopWidgetsEnabled = !root.desktopWidgetsEnabled; }
+        function showSpotlight(): void { root.showTopbarTool(spotlightPopup); }
+        function toggleSpotlight(): void { root.toggleTopbarTool(spotlightPopup); }
+        function hideSpotlight(): void { spotlightPopup.visible = false; }
+        function showBar(): void {
+            root.closeTopbarPopups();
+            root.barHeld = true;
+        }
+        function toggleBar(): void {
+            root.closeTopbarPopups();
+            root.barHeld = !root.barHeld;
+        }
+        function hideBar(): void {
+            root.closeTopbarPopups();
+            root.barHeld = false;
+        }
     }
 
     // Keep keyboard IPC independent of the popup's visual and mapped state.
     IpcHandler {
         target: "spotlightWindow"
-        function toggle(): void { spotlightPopup.toggle(); }
-        function show(): void { spotlightPopup.show(); }
+        function toggle(): void { root.toggleTopbarTool(spotlightPopup); }
+        function show(): void { root.showTopbarTool(spotlightPopup); }
         function hide(): void { spotlightPopup.hide(); }
     }
 
@@ -179,6 +251,10 @@ Item {
     property real volumeLevel: 0
     property string wifiText: "..."
     property string networkType: "none"
+    property bool wifiEnabled: true
+    property real brightnessLevel: 0
+    property bool brightnessAvailable: false
+    property int pendingBrightnessPercent: -1
     property string batteryText: "..."
     property string batteryStatus: "Unknown"
     // TLP power profile from /run/tlp/last_pwr: performance, balanced or power-saver.
@@ -258,7 +334,7 @@ Item {
                     var fileName = file.split("/").pop().replace(/\.[^.]+$/, "");
                     if (title === "") title = fileName || "Unknown title";
                     root.mpdTitle = title;
-                    root.mpdAlbumArtist = (album || "Unknown album") + " - " + (artist || "Unknown artist");
+                    root.mpdAlbumArtist = artist || "Unknown artist";
                     root.mpdRawText = artist ? artist + " - " + title : title;
                     root.mpdPlaying = state[1] === "playing";
                     var progress = lines[1].match(/(\d+(?::\d+){1,2})\/(\d+(?::\d+){1,2})/);
@@ -434,6 +510,63 @@ Item {
         }
     }
 
+    Process {
+        id: wifiRadioProc
+        command: ["nmcli", "radio", "wifi"]
+        stdout: StdioCollector {
+            onStreamFinished: root.wifiEnabled = this.text.trim() === "enabled"
+        }
+    }
+
+    Process {
+        id: wifiToggleProc
+        command: ["nmcli", "radio", "wifi", root.wifiEnabled ? "off" : "on"]
+        onExited: {
+            wifiRadioProc.running = true;
+            wifiProc.running = true;
+        }
+    }
+
+    Process {
+        id: brightnessProc
+        command: ["brightnessctl", "-m"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                var fields = this.text.trim().split(",");
+                if (fields.length < 5) {
+                    root.brightnessAvailable = false;
+                    return;
+                }
+                var percent = parseFloat(fields[3]);
+                if (isNaN(percent)) {
+                    root.brightnessAvailable = false;
+                    return;
+                }
+                root.brightnessLevel = Math.max(0, Math.min(1, percent / 100));
+                root.brightnessAvailable = true;
+            }
+        }
+        onExited: (exitCode, exitStatus) => {
+            if (exitCode !== 0) root.brightnessAvailable = false;
+        }
+    }
+
+    Process {
+        id: brightnessSetProc
+        property int targetPercent: 50
+        command: ["brightnessctl", "set", targetPercent + "%"]
+        onRunningChanged: {
+            if (running) return;
+            if (root.pendingBrightnessPercent >= 0) Qt.callLater(root.flushBrightness);
+            else brightnessProc.running = true;
+        }
+    }
+
+    Process {
+        id: toggleMicMuteProc
+        command: ["wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "toggle"]
+    }
+
     // TLP records its active profile as the first field of /run/tlp/last_pwr
     // (0 = performance, 1 = balanced, 2 = power-saver). The file is world
     // readable and far cheaper to poll than spawning tlp-stat.
@@ -481,14 +614,7 @@ Item {
                     // Keyboard focus moving to our layer clears the active app.
                     // Only a real application gaining focus should dismiss menus.
                     if (l === "activewindow>>," || l === "activewindow>>") return;
-                    calPopup.visible = false;
-                    volPopup.visible = false;
-                    netPopup.visible = false;
-                    pwrPopup.visible = false;
-                    mpdPopup.visible = false;
-                    wallpaperPopup.visible = false;
-                    spotlightPopup.visible = false;
-                    if (trayModule && trayModule.popup) trayModule.popup.visible = false;
+                    root.closeTopbarPopups();
                 }
             }
         }
@@ -552,7 +678,7 @@ Item {
     PanelWindow {
         id: dynamicIsland
         // Clear compositor blur before unmapping the transparent layer.
-        readonly property bool needsSurface: dynamicIsland.notifActive || dynamicIsland.isExpanded || background.toolVisible
+        readonly property bool needsSurface: dynamicIsland.notifActive || dynamicIsland.barShown || background.toolVisible
             || !dynamicIsland.barHideComplete || background.popupVisible
             || background.y + background.height > 0
         property bool surfaceMapped: false
@@ -580,7 +706,7 @@ Item {
         // One fixed surface holds the bar, its tools and attached menus. The mask passes
         // input through everywhere else without resizing the window each frame.
         height: screen.height
-        // Reserve only the visible portion of the expanded bar so application
+        // Reserve only the visible portion of the bar so application
         // windows move below it instead of being covered by the overlay layer.
         readonly property int edgeMargin: 8
         readonly property int windowMargin: 8
@@ -588,8 +714,8 @@ Item {
         readonly property int revealDelay: 280
         readonly property int expandedExclusiveZone: edgeMargin + root.barRowHeight
         exclusiveZone: dynamicIsland.notifActive
-            ? dynamicIsland.notificationExclusiveZone
-            : ((dynamicIsland.isExpanded || !dynamicIsland.barHideComplete)
+            ? Math.ceil(dynamicIsland.edgeMargin + dynamicIsland.targetHeight)
+            : ((dynamicIsland.barShown || !dynamicIsland.barHideComplete)
                 ? dynamicIsland.expandedExclusiveZone
                 : 0)
         color: "transparent"
@@ -611,23 +737,25 @@ Item {
 
         mask: AttachedRegion { surface: background }
 
-        // A notification outranks hover: the card is only legible at full width, so
-        // it never appears in the 120px collapsed sliver. Two thirds of the
-        // expanded bar, so the bar grows into the card rather than jumping.
+        // A notification temporarily replaces the compact bar with a wider card.
         readonly property bool notifActive: root.activeNotification !== null
-        property bool isExpanded: root.barHeld || (hoverHandler.hovered && !background.toolVisible)
+        property bool barShown: root.barHeld || (hoverHandler.hovered && !background.toolVisible)
             || background.popupVisible
         property bool barRevealComplete: false
         property bool barHideComplete: true
         readonly property real targetHeight: notifActive ? 76 : root.barRowHeight
-        property real targetWidth: notifActive ? 520
-            : (barRevealComplete ? expandedModules.implicitWidth + 40 : 120)
+        readonly property real compactWidth: root.barHorizontalPadding * 2
+            + workspacesRect.implicitWidth + root.barModuleGap + batRect.implicitWidth
+        readonly property real attachedMenuWidth: background.popupVisible && background.currentPopup
+            ? background.currentPopup.panelWidth + root.barRowHeight + 40 : 0
+        readonly property real targetWidth: notifActive ? 520
+            : Math.max(compactWidth, attachedMenuWidth)
         readonly property real targetTopMargin: notifActive
             ? edgeMargin
-            : ((isExpanded || !barHideComplete) ? edgeMargin : hiddenTopMargin)
+            : ((barShown || !barHideComplete) ? edgeMargin : hiddenTopMargin)
         // Desktop widgets follow the regular bar's show/hide state, but ignore
         // notification geometry so a card never pushes them down.
-        readonly property real widgetTargetTopMargin: (isExpanded || !barHideComplete)
+        readonly property real widgetTargetTopMargin: (barShown || !barHideComplete)
             ? edgeMargin : hiddenTopMargin
         property real widgetBarTopMargin: widgetTargetTopMargin
         property bool blurReady: false
@@ -651,7 +779,7 @@ Item {
 
         function updateBlurReady(): void {
             var destinationReady = dynamicIsland.notifActive
-                || (dynamicIsland.isExpanded && dynamicIsland.barRevealComplete);
+                || (dynamicIsland.barShown && dynamicIsland.barRevealComplete);
             if (!destinationReady) return;
             var targetX = (dynamicIsland.width - dynamicIsland.targetWidth) / 2;
             if (Math.abs(background.x - targetX) > root.blurTolerance
@@ -661,9 +789,9 @@ Item {
             dynamicIsland.blurReady = true;
         }
 
-        onIsExpandedChanged: {
+        onBarShownChanged: {
             blurReady = false;
-            if (isExpanded) {
+            if (barShown) {
                 barHideComplete = false;
                 collapseTimer.stop();
                 revealTimer.restart();
@@ -684,7 +812,7 @@ Item {
             interval: dynamicIsland.revealDelay
             repeat: false
             onTriggered: {
-                if (dynamicIsland.isExpanded) dynamicIsland.barRevealComplete = true;
+                if (dynamicIsland.barShown) dynamicIsland.barRevealComplete = true;
             }
         }
 
@@ -693,7 +821,7 @@ Item {
             interval: dynamicIsland.revealDelay
             repeat: false
             onTriggered: {
-                if (!dynamicIsland.isExpanded) dynamicIsland.barHideComplete = true;
+                if (!dynamicIsland.barShown) dynamicIsland.barHideComplete = true;
             }
         }
 
@@ -707,8 +835,10 @@ Item {
             height: dynamicIsland.barHeight * (1 - toolReveal) + toolHeight * toolReveal
             color: Qt.alpha(root.nord0, root.surfaceOpacity)
             outlineColor: Qt.alpha(root.nord4, 0.12)
-            radius: height / 2 * (1 - toolReveal) + Math.min(45, height / 2) * toolReveal
-            popups: [calPopup, volPopup, netPopup, pwrPopup, mpdPopup, wallpaperPopup, spotlightPopup, trayModule.popup]
+            radius: height / 2 * (1 - toolReveal)
+                + Math.min(currentTool ? currentTool.panelRadius : 32, height / 2) * toolReveal
+            popups: [calPopup, volPopup, netPopup, pwrPopup, mpdPopup, wallpaperPopup,
+                spotlightPopup, controlPanelPopup]
             barHovered: hoverHandler.hovered
 
             onXChanged: dynamicIsland.updateBlurReady()
@@ -745,226 +875,46 @@ Item {
                 fontMono: root.fontMono
             }
 
-            Row {
-                id: expandedModules
-                anchors.centerIn: parent
-                anchors.verticalCenterOffset: 0
-                spacing: 16
+            Item {
+                id: barContents
+                anchors.fill: parent
                 opacity: dynamicIsland.notifActive ? 0.0
                     : (dynamicIsland.barRevealComplete ? 1.0 - background.toolReveal : 0.0)
                 visible: opacity > 0
                 enabled: !background.toolVisible
+                clip: true
 
                 Behavior on opacity {
                     enabled: !background.toolVisible
                     NumberAnimation { duration: 220; easing.type: Easing.OutQuint }
                 }
 
-                // Workspaces
-                WorkspacesModule {
-                    nord1: root.nord1
-                    nord4: root.nord4
-                    nord8: root.nord8
-                    rubberSpring: root.rubberSpring
-                    rubberDamping: root.rubberDamping
-                }
+                Row {
+                    anchors.centerIn: parent
+                    height: parent.height
+                    spacing: root.barModuleGap
 
-                // MPD
-                MpdModule {
-                    id: mpdRect
-                    nord1: root.nord1
-                    nord6: root.nord6
-                    surfaceOpacity: root.surfaceOpacity
-                    fontPrimary: root.fontPrimary
-                    mpdText: root.mpdText
-                    playing: root.mpdPlaying
-                    mediaPopup: mpdPopup
-                    otherPopups: [calPopup, volPopup, netPopup, pwrPopup, wallpaperPopup, spotlightPopup, trayModule.popup]
-                }
+                    WorkspacesModule {
+                        id: workspacesRect
+                        nord1: root.nord1
+                        nord4: root.nord4
+                        nord8: root.nord8
+                        rubberSpring: root.rubberSpring
+                        rubberDamping: root.rubberDamping
+                    }
 
-                // Clock
-                ClockModule {
-                    id: clockRect
-                    nord0: root.nord0
-                    nord1: root.nord1
-                    nord4: root.nord4
-                    nord6: root.nord6
-                    nord8: root.nord8
-                    fontPrimary: root.fontPrimary
-                    fontMono: root.fontMono
-                    calPopup: calPopup
-                    otherPopups: [volPopup, netPopup, pwrPopup, mpdPopup, wallpaperPopup, spotlightPopup, trayModule.popup]
-                }
-
-                // Volume
-                VolumeModule {
-                    id: volRect
-                    nord1: root.nord1
-                    nord6: root.nord6
-                    surfaceOpacity: root.surfaceOpacity
-                    fontPrimary: root.fontPrimary
-                    volumeText: root.volumeText
-                    volumeLevel: root.volumeLevel
-                    volPopup: volPopup
-                    otherPopups: [calPopup, netPopup, pwrPopup, mpdPopup, wallpaperPopup, spotlightPopup, trayModule.popup]
-                }
-                
-                // WiFi
-                WifiModule {
-                    id: wifiRect
-                    nord1: root.nord1
-                    nord4: root.nord4
-                    nord6: root.nord6
-                    surfaceOpacity: root.surfaceOpacity
-                    fontPrimary: root.fontPrimary
-                    wifiText: root.wifiText
-                    networkType: root.networkType
-                    netPopup: netPopup
-                    otherPopups: [calPopup, volPopup, pwrPopup, mpdPopup, wallpaperPopup, spotlightPopup, trayModule.popup]
-                    scanWifiProc: scanWifiProc
-                }
-                
-                // Battery
-                BatteryModule {
-                    id: batRect
-                    nord1: root.nord1
-                    nord6: root.nord6
-                    surfaceOpacity: root.surfaceOpacity
-                    fontPrimary: root.fontPrimary
-                    batteryText: root.batteryText
-                    batteryStatus: root.batteryStatus
-                    pwrPopup: pwrPopup
-                    otherPopups: [calPopup, volPopup, netPopup, mpdPopup, wallpaperPopup, spotlightPopup, trayModule.popup]
-                }
-
-                // App Tray
-                TrayModule {
-                    id: trayModule
-                    popupHost: background
-                    nord0: root.nord0
-                    nord1: root.nord1
-                    nord6: root.nord6
-                    nord9: root.nord9
-                    surfaceOpacity: root.surfaceOpacity
-                    panelWindow: dynamicIsland
-                    otherPopups: [calPopup, volPopup, netPopup, pwrPopup, mpdPopup, wallpaperPopup, spotlightPopup]
-                }
-
-            }
-
-            // Compact Clock
-            Text {
-                id: compactClock
-                anchors.centerIn: parent
-                anchors.verticalCenterOffset: 0
-                text: Qt.formatDateTime(new Date(), "hh:mm")
-                color: root.nord6
-                font.family: "Outfit"
-                font.pixelSize: 14
-                opacity: dynamicIsland.notifActive ? 0.0
-                    : (dynamicIsland.barRevealComplete ? 0.0 : 1.0 - background.toolReveal)
-                visible: opacity > 0
-
-                Behavior on opacity {
-                    enabled: !background.toolVisible
-                    NumberAnimation { duration: 190; easing.type: Easing.OutQuint }
-                }
-            }
-        }
-        
-        Timer {
-            interval: 1000; running: true; repeat: true
-            onTriggered: {
-                var timeString = Qt.formatDateTime(new Date(), "hh:mm")
-                compactClock.text = timeString
-                clockRect.timeText = timeString
-
-            }
-        }
-    }
-
-    // Corner controls reveal from the top-right edge and use the same blurred,
-    // gradient-bordered surface as the main bar.
-    PanelWindow {
-        id: cornerControls
-        anchors { top: true; right: true }
-        width: 172
-        height: 64
-        color: "transparent"
-        exclusionMode: ExclusionMode.Ignore
-        WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
-
-        readonly property bool isExpanded: cornerHover.hovered || cornerHitHover.hovered
-        readonly property real expandedX: width - cornerBackground.width - 8
-        readonly property real collapsedX: width - 24
-
-        mask: Region { item: cornerHitArea }
-
-        BackgroundEffect.blurRegion: Region {
-            item: cornerBackground
-            radius: cornerBackground.radius
-        }
-
-        // This hit area stays attached to the screen edge while the pill slides
-        // underneath it, so the pointer can enter at the corner and move onto
-        // either toggle without interrupting the animation.
-        Rectangle {
-            id: cornerHitArea
-            x: cornerBackground.x
-            y: 0
-            width: cornerControls.width - x
-            height: cornerControls.height
-            color: "transparent"
-
-            HoverHandler { id: cornerHitHover }
-        }
-
-        GradientBorder {
-            id: cornerBackground
-            x: cornerControls.isExpanded ? cornerControls.expandedX : cornerControls.collapsedX
-            y: 8
-            width: 160
-            height: 46
-            color: Qt.alpha(root.nord0, root.surfaceOpacity)
-            radius: height / 2
-            gradientEndPosition: 1 / 3
-            gradientTail: "#00fff7ff"
-
-            Behavior on x {
-                SpringAnimation {
-                    spring: root.rubberSpring
-                    damping: root.rubberDamping
-                    mass: 1
-                    epsilon: 0.25
-                }
-            }
-
-            HoverHandler { id: cornerHover }
-
-            Row {
-                anchors.centerIn: parent
-                spacing: 8
-
-                SystemMonitorToggleModule {
-                    nord1: root.nord1
-                    surfaceOpacity: root.surfaceOpacity
-                    widgetsEnabled: root.desktopWidgetsEnabled
-                    onToggled: root.desktopWidgetsEnabled = !root.desktopWidgetsEnabled
-                }
-
-                NotifMuteModule {
-                    nord1: root.nord1
-                    surfaceOpacity: root.surfaceOpacity
-                    muted: root.notifMuted
-                    onToggled: root.notifMuted = !root.notifMuted
-                }
-
-                FloatingClockToggleModule {
-                    nord1: root.nord1
-                    surfaceOpacity: root.surfaceOpacity
-                    clockEnabled: root.floatingClockEnabled
-                    onToggled: root.floatingClockEnabled = !root.floatingClockEnabled
+                    BatteryModule {
+                        id: batRect
+                        nord1: root.nord1
+                        nord6: root.nord6
+                        surfaceOpacity: root.surfaceOpacity
+                        fontPrimary: root.fontPrimary
+                        batteryText: root.batteryText
+                        batteryStatus: root.batteryStatus
+                        pwrPopup: pwrPopup
+                        otherPopups: [calPopup, volPopup, netPopup, mpdPopup, wallpaperPopup,
+                            spotlightPopup, controlPanelPopup]
+                    }
                 }
             }
         }
@@ -983,8 +933,8 @@ Item {
             calendarDate.getFullYear(), calendarDate.getMonth() + 1, 0).getDate()
 
         popupHost: background
-        anchorItem: clockRect
-        anchorHovered: clockRect.hovered
+        anchorItem: background
+        anchorHovered: background.barHovered
         panelWidth: 280
         panelHeight: calendarControls.implicitHeight + padding * 2
 
@@ -1032,213 +982,280 @@ Item {
         }
     }
 
-    // MPD Popup
+    // MPD control replaces the top bar with the compact player state.
     AnimatedPopup {
         id: mpdPopup
+        animationDuration: 180
+        replacesBar: true
+        panelRadius: 28
         popupHost: background
-        anchorItem: mpdRect
-        anchorHovered: mpdRect.hovered
-        hold: mpdProgress.pressed
-        panelWidth: 400
-        panelHeight: mpdControls.height + padding * 2
+        anchorItem: background
+        anchorHovered: background.barHovered
+        hold: true
+        panelWidth: 268
+        panelHeight: mpdControls.implicitHeight + padding * 2
         onVisibleChanged: if (visible) mpcProc.running = true
 
-        Row {
+        Column {
             id: mpdControls
             width: parent.width
-            height: 132
-            anchors.centerIn: parent
-            spacing: 16
+            spacing: 6
 
-            Rectangle {
-                id: mpdCover
-                width: 116; height: 116; radius: 18
-                anchors.verticalCenter: parent.verticalCenter
-                color: Qt.alpha(root.nord1, root.surfaceOpacity)
-                clip: true
+            Row {
+                width: parent.width
+                height: 52
+                spacing: 12
 
-                SvgIcon {
-                    anchors.centerIn: parent
-                    width: 38; height: 38
-                    visible: mpdCoverImage.status !== Image.Ready
-                    path: "M9 18V5l12-2v13 M9 18a3 3 0 1 1-6 0a3 3 0 0 1 6 0 M21 16a3 3 0 1 1-6 0a3 3 0 0 1 6 0"
-                    iconColor: root.nord8
+                Rectangle {
+                    id: mpdCover
+                    width: 52; height: 52; radius: 13
+                    color: Qt.alpha(root.nord1, root.surfaceOpacity)
+                    clip: true
+
+                    SvgIcon {
+                        anchors.centerIn: parent
+                        width: 22; height: 22
+                        visible: mpdCoverImage.status !== Image.Ready
+                        path: "M9 18V5l12-2v13 M9 18a3 3 0 1 1-6 0a3 3 0 0 1 6 0 M21 16a3 3 0 1 1-6 0a3 3 0 0 1 6 0"
+                        iconColor: root.nord8
+                    }
+                    Image {
+                        id: mpdCoverImage
+                        anchors.fill: parent
+                        source: root.mpdArtAvailable
+                            ? "file://" + root.mpdArtPath + "?rev=" + root.mpdArtRevision
+                            : ""
+                        visible: status === Image.Ready
+                        asynchronous: true
+                        cache: false
+                        fillMode: Image.PreserveAspectCrop
+                        sourceSize.width: 128; sourceSize.height: 128
+                        onStatusChanged: if (status === Image.Error) root.mpdArtAvailable = false
+                    }
                 }
-                Image {
-                    id: mpdCoverImage
-                    anchors.fill: parent
-                    source: root.mpdArtAvailable
-                        ? "file://" + root.mpdArtPath + "?rev=" + root.mpdArtRevision
-                        : ""
-                    visible: status === Image.Ready
-                    asynchronous: true
-                    cache: false
-                    fillMode: Image.PreserveAspectCrop
-                    sourceSize.width: 256; sourceSize.height: 256
-                    onStatusChanged: if (status === Image.Error) root.mpdArtAvailable = false
+
+                Column {
+                    width: parent.width - mpdCover.width - parent.spacing
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 4
+
+                    Text {
+                        width: parent.width
+                        text: root.mpdTitle
+                        textFormat: Text.PlainText
+                        color: root.nord6
+                        font.family: root.fontPrimary; font.pixelSize: 13; font.weight: Font.Medium
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        width: parent.width
+                        text: root.mpdAlbumArtist
+                        textFormat: Text.PlainText
+                        color: root.nord4
+                        font.family: root.fontPrimary; font.pixelSize: 10
+                        elide: Text.ElideRight
+                    }
                 }
             }
 
-            Column {
-                width: mpdControls.width - mpdCover.width - mpdControls.spacing
-                anchors.verticalCenter: parent.verticalCenter
+            RowLayout {
+                width: parent.width
+                height: 14
                 spacing: 6
 
                 Text {
-                    width: parent.width
-                    text: root.mpdTitle
-                    textFormat: Text.PlainText
-                    color: root.nord6
-                    font.family: root.fontPrimary; font.pixelSize: 15; font.bold: true
-                    elide: Text.ElideRight
+                    Layout.preferredWidth: 28
+                    text: root.formatMpdTime(root.mpdDisplayedElapsed)
+                    color: root.nord4
+                    font.family: root.fontMono; font.pixelSize: 8
+                }
+                Slider {
+                    id: mpdProgress
+                    Layout.fillWidth: true
+                    implicitHeight: 14
+                    padding: 0
+                    from: 0; to: 1
+                    enabled: root.mpdDuration > 0 && !mpdSeekProc.running
+                    property bool userMoved: false
+                    property real seekValue: 0
+                    Binding on value {
+                        when: !mpdProgress.pressed
+                        value: root.mpdDuration > 0
+                            ? root.mpdDisplayedElapsed / root.mpdDuration : 0
+                        restoreMode: Binding.RestoreNone
+                    }
+                    onMoved: {
+                        seekValue = value;
+                        userMoved = true;
+                    }
+                    onPressedChanged: {
+                        if (!pressed && userMoved) {
+                            userMoved = false;
+                            var target = Math.round(seekValue * 100);
+                            root.mpdSeekRevision++;
+                            root.mpdElapsed = root.mpdDuration * target / 100;
+                            root.mpdStatusAt = Date.now();
+                            root.mpdProgressNow = root.mpdStatusAt;
+                            mpdSeekProc.percent = target;
+                            mpdSeekProc.running = true;
+                        }
+                    }
+                    background: Item {
+                        x: mpdProgress.leftPadding
+                        y: mpdProgress.topPadding + (mpdProgress.availableHeight - height) / 2
+                        width: mpdProgress.availableWidth
+                        height: 4
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: 2
+                            color: Qt.alpha(root.nord1, root.surfaceOpacity)
+                        }
+                        Rectangle {
+                            width: parent.width * mpdProgress.visualPosition
+                            height: parent.height
+                            radius: 2
+                            color: root.nord6
+                        }
+                    }
+                    handle: Item { width: 0; height: 0 }
                 }
                 Text {
-                    width: parent.width
-                    text: root.mpdAlbumArtist
-                    textFormat: Text.PlainText
+                    Layout.preferredWidth: 28
+                    text: "−" + root.formatMpdTime(Math.max(0, root.mpdDuration - root.mpdDisplayedElapsed))
                     color: root.nord4
-                    font.family: root.fontPrimary; font.pixelSize: 11
-                    elide: Text.ElideRight
+                    font.family: root.fontMono; font.pixelSize: 8
+                    horizontalAlignment: Text.AlignRight
                 }
+            }
 
-                Row {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    height: 38
-                    spacing: 12
+            Row {
+                anchors.horizontalCenter: parent.horizontalCenter
+                height: 30
+                spacing: 22
 
-                    Rectangle {
-                        width: 32; height: 32; radius: 16
-                        anchors.verticalCenter: parent.verticalCenter
-                        color: previousMouse.containsMouse
-                            ? Qt.alpha(root.nord8, 0.2) : "transparent"
-                        Accessible.name: "Previous track"
-                        SvgIcon {
-                            anchors.centerIn: parent
-                            width: 18; height: 18
-                            path: "M6 5v14 M18 5 8 12l10 7z"
-                            iconColor: root.nord6
-                        }
-                        MouseArea {
-                            id: previousMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: mpdPreviousProc.running = true
-                        }
+                Rectangle {
+                    width: 28; height: 28; radius: 14
+                    anchors.verticalCenter: parent.verticalCenter
+                    color: "transparent"
+                    Accessible.name: "Previous track"
+                    SvgIcon {
+                        anchors.centerIn: parent
+                        width: 20; height: 20
+                        path: "M5 5h2v14H5z M19 5L10 12l9 7z"
+                        iconColor: previousMouse.containsMouse ? root.nord6 : Qt.alpha(root.nord6, 0.92)
+                        fill: true
                     }
-                    Rectangle {
-                        width: 38; height: 38; radius: 19
-                        color: Qt.alpha(root.nord8, 0.9)
-                        anchors.verticalCenter: parent.verticalCenter
-                        Accessible.name: root.mpdPlaying ? "Pause" : "Play"
-                        SvgIcon {
-                            anchors.centerIn: parent
-                            width: 19; height: 19
-                            path: root.mpdPlaying
-                                ? "M7 5h4v14H7z M15 5h4v14h-4z"
-                                : "M8 5v14l11-7z"
-                            iconColor: root.nord0
-                            fill: true
-                        }
-                        MouseArea {
-                            id: togglePlaybackMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: mpdToggleProc.running = true
-                        }
-                    }
-                    Rectangle {
-                        width: 32; height: 32; radius: 16
-                        anchors.verticalCenter: parent.verticalCenter
-                        color: nextMouse.containsMouse
-                            ? Qt.alpha(root.nord8, 0.2) : "transparent"
-                        Accessible.name: "Next track"
-                        SvgIcon {
-                            anchors.centerIn: parent
-                            width: 18; height: 18
-                            path: "M18 5v14 M6 5l10 7-10 7z"
-                            iconColor: root.nord6
-                        }
-                        MouseArea {
-                            id: nextMouse
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: mpdNextProc.running = true
-                        }
+                    MouseArea {
+                        id: previousMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: mpdPreviousProc.running = true
                     }
                 }
-
-                RowLayout {
-                    width: parent.width
-                    spacing: 6
-
-                    Text {
-                        Layout.preferredWidth: 30
-                        text: root.formatMpdTime(root.mpdDisplayedElapsed)
-                        color: root.nord4
-                        font.family: root.fontMono; font.pixelSize: 9
+                Rectangle {
+                    width: 30; height: 30; radius: 15
+                    color: "transparent"
+                    Accessible.name: root.mpdPlaying ? "Pause" : "Play"
+                    SvgIcon {
+                        anchors.centerIn: parent
+                        width: 19; height: 19
+                        path: root.mpdPlaying
+                            ? "M7 5h4v14H7z M15 5h4v14h-4z"
+                            : "M8 5v14l11-7z"
+                        iconColor: togglePlaybackMouse.containsMouse ? root.nord6 : Qt.alpha(root.nord6, 0.92)
+                        fill: true
                     }
-                    Slider {
-                        id: mpdProgress
-                        Layout.fillWidth: true
-                        implicitHeight: 16
-                        padding: 0
-                        from: 0; to: 1
-                        enabled: root.mpdDuration > 0 && !mpdSeekProc.running
-                        property bool userMoved: false
-                        property real seekValue: 0
-                        Binding on value {
-                            when: !mpdProgress.pressed
-                            value: root.mpdDuration > 0
-                                ? root.mpdDisplayedElapsed / root.mpdDuration : 0
-                            restoreMode: Binding.RestoreNone
-                        }
-                        onMoved: {
-                            seekValue = value;
-                            userMoved = true;
-                        }
-                        onPressedChanged: {
-                            if (!pressed && userMoved) {
-                                userMoved = false;
-                                var target = Math.round(seekValue * 100);
-                                root.mpdSeekRevision++;
-                                root.mpdElapsed = root.mpdDuration * target / 100;
-                                root.mpdStatusAt = Date.now();
-                                root.mpdProgressNow = root.mpdStatusAt;
-                                mpdSeekProc.percent = target;
-                                mpdSeekProc.running = true;
-                            }
-                        }
-                        background: Item {
-                            x: mpdProgress.leftPadding
-                            y: mpdProgress.topPadding + (mpdProgress.availableHeight - height) / 2
-                            width: mpdProgress.availableWidth
-                            height: 5
-                            Rectangle {
-                                anchors.fill: parent
-                                radius: 3
-                                color: Qt.alpha(root.nord1, root.surfaceOpacity)
-                            }
-                            Rectangle {
-                                width: parent.width * mpdProgress.visualPosition
-                                height: parent.height
-                                radius: 3
-                                color: root.nord8
-                            }
-                        }
-                        handle: Item { width: 0; height: 0 }
+                    MouseArea {
+                        id: togglePlaybackMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: mpdToggleProc.running = true
                     }
-                    Text {
-                        Layout.preferredWidth: 30
-                        text: root.formatMpdTime(root.mpdDuration)
-                        color: root.nord4
-                        font.family: root.fontMono; font.pixelSize: 9
-                        horizontalAlignment: Text.AlignRight
+                }
+                Rectangle {
+                    width: 28; height: 28; radius: 14
+                    anchors.verticalCenter: parent.verticalCenter
+                    color: "transparent"
+                    Accessible.name: "Next track"
+                    SvgIcon {
+                        anchors.centerIn: parent
+                        width: 20; height: 20
+                        path: "M17 5h2v14h-2z M5 5l9 7-9 7z"
+                        iconColor: nextMouse.containsMouse ? root.nord6 : Qt.alpha(root.nord6, 0.92)
+                        fill: true
+                    }
+                    MouseArea {
+                        id: nextMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: mpdNextProc.running = true
                     }
                 }
             }
+        }
+    }
+
+    AnimatedPopup {
+        id: controlPanelPopup
+        animationDuration: 180
+        replacesBar: true
+        panelRadius: 32
+        popupHost: background
+        anchorItem: background
+        anchorHovered: background.barHovered
+        hold: true
+        panelWidth: 284
+        panelHeight: 284
+
+        onVisibleChanged: {
+            if (!visible) return;
+            wifiRadioProc.running = true;
+            brightnessProc.running = true;
+            mpcProc.running = true;
+        }
+
+        ControlPanel {
+            anchors.fill: parent
+            nord0: root.nord0
+            nord1: root.nord1
+            nord4: root.nord4
+            nord6: root.nord6
+            nord8: root.nord8
+            nord9: root.nord9
+            fontPrimary: root.fontPrimary
+            fontMono: root.fontMono
+            wifiText: root.wifiText
+            wifiEnabled: root.wifiEnabled
+            focusEnabled: root.notifMuted
+            volumeLevel: root.volumeLevel
+            brightnessLevel: root.brightnessLevel
+            brightnessAvailable: root.brightnessAvailable
+            widgetsEnabled: root.desktopWidgetsEnabled
+            microphoneMuted: Pipewire.defaultAudioSource && Pipewire.defaultAudioSource.audio
+                ? Pipewire.defaultAudioSource.audio.muted : false
+            microphoneAvailable: Pipewire.defaultAudioSource !== null
+            clockEnabled: root.floatingClockEnabled
+            trackTitle: root.mpdTitle
+            trackArtist: root.mpdAlbumArtist
+            albumArtSource: root.mpdArtAvailable
+                ? "file://" + root.mpdArtPath + "?rev=" + root.mpdArtRevision : ""
+            playing: root.mpdPlaying
+            onVolumeRequested: value => root.setVolume(value)
+            onBrightnessRequested: value => root.setBrightness(value)
+            onWifiToggled: wifiToggleProc.running = true
+            onFocusToggled: root.notifMuted = !root.notifMuted
+            onPlaybackToggled: mpdToggleProc.running = true
+            onWidgetsToggled: root.desktopWidgetsEnabled = !root.desktopWidgetsEnabled
+            onMicrophoneToggled: {
+                if (Pipewire.defaultAudioSource && !toggleMicMuteProc.running)
+                    toggleMicMuteProc.running = true;
+            }
+            onClockToggled: root.floatingClockEnabled = !root.floatingClockEnabled
+            onWallpaperRequested: root.showTopbarTool(wallpaperPopup)
+            onMusicRequested: root.showTopbarTool(mpdPopup)
         }
     }
 
@@ -1248,9 +1265,9 @@ Item {
         readonly property PwNode outputDevice: Pipewire.defaultAudioSink
         readonly property PwNode inputDevice: Pipewire.defaultAudioSource
 
-        anchorItem: volRect
+        anchorItem: background
         popupHost: background
-        anchorHovered: volRect.hovered
+        anchorHovered: background.barHovered
         hold: volSlider.pressed
         panelHeight: volumeControls.implicitHeight + padding * 2
         
@@ -1258,11 +1275,6 @@ Item {
             id: toggleMuteProc
             command: ["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"]
             onRunningChanged: if(!running) volProc.running = true
-        }
-
-        Process {
-            id: toggleMicMuteProc
-            command: ["wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "toggle"]
         }
 
         Column {
@@ -1517,8 +1529,8 @@ Item {
             connectWifiProc.running = true;
         }
         popupHost: background
-        anchorItem: wifiRect
-        anchorHovered: wifiRect.hovered
+        anchorItem: background
+        anchorHovered: background.barHovered
         hold: selectedWifi !== null || returningToWifiList
         panelWidth: 320
         panelHeight: selectedWifi
@@ -1773,7 +1785,7 @@ Item {
         popupHost: background
         anchorItem: background
         anchorHovered: background.barHovered
-        panelWidth: Math.min(400, Math.max(160,
+        panelWidth: Math.min(268, Math.max(160,
             dynamicIsland.screen.width - dynamicIsland.windowMargin * 2))
         searchHeight: root.barRowHeight
         nord1: root.nord1
@@ -1782,7 +1794,7 @@ Item {
         nord8: root.nord8
         surfaceOpacity: root.surfaceOpacity
         fontPrimary: "Outfit"
-        otherPopups: [calPopup, volPopup, netPopup, pwrPopup, mpdPopup, wallpaperPopup, trayModule.popup]
+        otherPopups: [calPopup, volPopup, netPopup, pwrPopup, mpdPopup, wallpaperPopup, controlPanelPopup]
     }
 
     // The wallpaper keybind turns the same surface into the picker.
@@ -1802,7 +1814,7 @@ Item {
         onVisibleChanged: {
             if (visible) {
                 wallpaperPicker.refreshThumbnails();
-                var otherPopups = [calPopup, volPopup, netPopup, pwrPopup, mpdPopup, spotlightPopup, trayModule.popup];
+                var otherPopups = [calPopup, volPopup, netPopup, pwrPopup, mpdPopup, spotlightPopup, controlPanelPopup];
                 for (var i = 0; i < otherPopups.length; i++) otherPopups[i].visible = false;
                 Qt.callLater(function() {
                     if (wallpaperPopup.visible) wallpaperPicker.focusSearch();

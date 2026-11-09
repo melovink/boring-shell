@@ -10,8 +10,8 @@ Item {
     property color nord1: "#3B4252"
     property color nord6: "#ECEFF4"
     property real surfaceOpacity: 0.8
-    property int horizontalMargin: 16
-    property int verticalMargin: 2
+    property int horizontalMargin: 10
+    property int verticalMargin: 1
     property string fontPrimary: "Outfit"
 
     signal picked()
@@ -36,9 +36,9 @@ Item {
 
     Image {
         id: icon
-        x: 16
-        width: 32
-        height: 32
+        x: 15
+        width: 19
+        height: 19
         anchors.verticalCenter: parent.verticalCenter
         fillMode: Image.PreserveAspectFit
         asynchronous: true
@@ -48,15 +48,15 @@ Item {
 
     Text {
         anchors.left: icon.right
-        anchors.leftMargin: 12
+        anchors.leftMargin: 10
         anchors.right: parent.right
-        anchors.rightMargin: 16
+        anchors.rightMargin: 12
         anchors.verticalCenter: parent.verticalCenter
         text: row.item ? row.item.name : ""
         color: row.nord6
         elide: Text.ElideRight
         font.family: row.fontPrimary
-        font.pixelSize: 15
+        font.pixelSize: 13
     }
 
     MouseArea {

@@ -43,13 +43,20 @@ PanelWindow {
         refreshInterval: root.refreshInterval
     }
 
-    Rectangle {
+    GlassSurface {
         id: surface
         anchors.fill: parent
         radius: 28 * root.sizeScale
-        color: Qt.alpha(root.nord0, root.surfaceOpacity)
-        border.width: root.sizeScale
-        border.color: Qt.alpha(root.nord4, 0.12)
+        borderWidth: root.sizeScale
+        fillStart: "#FF2E3440"
+        fillEnd: "#737787A6"
+        rimTint: root.nord4
+        lightAngle: 180
+        lightIntensity: 80
+        refraction: 80
+        depth: 20
+        dispersion: 50
+        splay: 0
 
         Row {
             id: gauges
@@ -63,7 +70,7 @@ PanelWindow {
                 sizeScale: root.sizeScale
                 detail: "total usage"
                 value: metrics.cpuUsage
-                accent: root.nord8
+                accent: "#7787A6"
                 foreground: root.nord6
                 secondary: root.nord4
                 fontPrimary: root.fontPrimary
@@ -80,7 +87,7 @@ PanelWindow {
                         + (metrics.memoryTotal / 1073741824).toFixed(1) + " GiB"
                     : "— GiB"
                 value: metrics.memoryUsage
-                accent: root.nord9
+                accent: "#9BAAC1"
                 foreground: root.nord6
                 secondary: root.nord4
                 fontPrimary: root.fontPrimary

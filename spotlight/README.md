@@ -64,18 +64,16 @@ usable `.DirIcon` fall back to `application-x-executable`.
 - The keyboard is released before an app maps, otherwise the new window would
   inherit focus from our exclusive-focus layer surface.
 
-IPC target `spotlightWindow` exposes `toggle`, `show` and `hide`. Note that the
-`quickshell ipc` CLI cannot call a function literally named `show` — it parses
-it as the `ipc show` subcommand — so prefer `toggle`.
+IPC target `spotlightWindow` exposes `toggle`, `show` and `hide`. The top bar also
+exposes `topBar toggleSpotlight`, `showSpotlight` and `hideSpotlight` for a
+consistent set of state bindings.
 
 ## Layout Notes
 
-The launcher replaces the top bar's modules, matching the wallpaper picker.
-Its width is up to 400px. The borderless search row uses 16px Outfit
-text and magnifier, and stays 46px tall to match the normal bar. Up to nine visible
-48px result rows extend below a divider, with 24px of bottom clearance. Additional
-results scroll within the panel. Desktop widgets keep their normal bar placement
-as results resize the launcher.
+The launcher replaces the top bar's modules, matching the wallpaper picker. It is
+268px wide, with a 46px borderless search field and up to six 29px result rows
+below a divider. Additional results scroll within the panel. Desktop widgets keep
+their normal bar placement as results resize the launcher.
 
 `Spotlight.qml` extends the shell's `AnimatedPopup` and owns indexing and selection;
 `SpotlightPanel.qml` supplies the search field and result list. The bar supplies

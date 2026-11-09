@@ -11,7 +11,7 @@ Item {
     property color nord6: "#ECEFF4"
     property real surfaceOpacity: 0.78
     property bool shown: false
-    property int horizontalPadding: Math.min(46, Math.floor(width / 8))
+    property int horizontalPadding: Math.min(32, Math.floor(width / 11))
     readonly property bool inputFocused: field.activeFocus
 
     signal keyPressed(var event)
@@ -39,8 +39,8 @@ Item {
     Image {
         x: root.horizontalPadding
         anchors.verticalCenter: parent.verticalCenter
-        width: 21
-        height: 21
+        width: 17
+        height: 17
         source: Qt.resolvedUrl("../spotlight/assets/search.svg")
         fillMode: Image.PreserveAspectFit
         smooth: true
@@ -51,15 +51,15 @@ Item {
 
     TextInput {
         id: field
-        x: root.horizontalPadding + 34
-        width: Math.max(0, parent.width - root.horizontalPadding * 2 - 34)
+        x: root.horizontalPadding + 28
+        width: Math.max(0, parent.width - root.horizontalPadding * 2 - 28)
         height: parent.height
         verticalAlignment: TextInput.AlignVCenter
         color: root.nord6
         selectionColor: Qt.alpha(root.nord1, root.surfaceOpacity)
         selectedTextColor: root.nord6
         font.family: root.fontPrimary
-        font.pixelSize: 16
+        font.pixelSize: 14
         selectByMouse: true
         clip: true
 
@@ -74,7 +74,7 @@ Item {
         text: root.placeholderText
         color: Qt.alpha(root.nord6, 0.4)
         font.family: root.fontPrimary
-        font.pixelSize: 16
+        font.pixelSize: 14
         elide: Text.ElideRight
     }
 }

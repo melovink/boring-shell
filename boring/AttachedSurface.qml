@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Shapes
 
 // A single path avoids overlapping translucency or a border seam at the join.
@@ -7,6 +8,14 @@ Item {
 
     property color color: "transparent"
     property color outlineColor: "#22D8DEE9"
+    property color gradientStart: "#FF2E3440"
+    property color gradientEnd: "#737787A6"
+    property real lightAngle: 180
+    property real lightIntensity: 80
+    property real refraction: 80
+    property real depth: 20
+    property real dispersion: 50
+    property real splay: 0
     property real radius: height / 2
     property var popups: []
     property bool barHovered: false
@@ -101,17 +110,73 @@ Item {
         height: root.height + root.popupVisibleHeight
         antialiasing: true
         preferredRendererType: Shape.CurveRenderer
+        layer.enabled: true
+        layer.effect: MultiEffect {
+            shadowEnabled: true
+            shadowColor: "#40000000"
+            blurMax: 8
+            shadowBlur: 1.0
+            shadowVerticalOffset: 4
+        }
         ShapePath {
             fillColor: root.color
+            fillGradient: LinearGradient {
+                x1: 0; y1: 0
+                x2: 0; y2: root.height + root.popupVisibleHeight
+                GradientStop { position: 0; color: root.gradientStart }
+                GradientStop { position: 1; color: root.gradientEnd }
+            }
             strokeColor: root.outlineColor
             strokeGradient: LinearGradient {
                 x1: 0; y1: 0
                 x2: 0; y2: root.height + root.popupVisibleHeight
-                GradientStop { position: 0; color: root.toolVisible ? "#00fff7ff" : root.outlineColor }
-                GradientStop { position: 1; color: root.toolVisible ? "#55e5e9f0" : root.outlineColor }
+                GradientStop {
+                    position: 0
+                    color: root.toolVisible ? "#72FFFFFF" : Qt.alpha("#ECEFF4", 0.25)
+                }
+                GradientStop {
+                    position: 0.52
+                    color: Qt.alpha("#C7D7F0", root.dispersion / 100 * 0.18)
+                }
+                GradientStop {
+                    position: 1
+                    color: Qt.alpha("#9EB1D0", 0.10 + root.dispersion / 100 * 0.17)
+                }
             }
-            strokeWidth: 1
+            strokeWidth: 0.8 + root.depth / 100
             joinStyle: ShapePath.RoundJoin
+            PathSvg { path: root.surfacePath }
+        }
+    }
+
+    Shape {
+        width: root.width
+        height: root.height + root.popupVisibleHeight
+        antialiasing: true
+        ShapePath {
+            fillColor: "transparent"
+            strokeColor: "transparent"
+            strokeWidth: 0
+            fillGradient: LinearGradient {
+                x1: 0; y1: 0
+                x2: 0; y2: root.height + root.popupVisibleHeight
+                GradientStop {
+                    position: root.lightAngle >= 180 ? 0 : 1
+                    color: Qt.rgba(1, 1, 1,
+                        root.lightIntensity / 100 * root.refraction / 100 * 0.18)
+                }
+                GradientStop {
+                    position: 0.38
+                    color: Qt.rgba(1, 1, 1,
+                        root.lightIntensity / 100 * root.refraction / 100 * 0.035)
+                }
+                GradientStop {
+                    position: root.lightAngle >= 180
+                        ? 1 - root.splay / 100 * 0.12
+                        : root.splay / 100 * 0.12
+                    color: Qt.rgba(0.58, 0.70, 0.91, root.dispersion / 100 * 0.09)
+                }
+            }
             PathSvg { path: root.surfacePath }
         }
     }
